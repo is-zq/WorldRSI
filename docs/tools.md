@@ -2,7 +2,7 @@
 
 Use `./wrsi tools` in the existing `API-World` environment. `tools_runtime`
 provides execution, state capture/replay, condition encoding and artifact checks.
-It supplies no simulator-selection rules or task-modeling implementations.
+Executor selects the simulator and authors the task model using the supplied interfaces.
 Installed simulator discovery reports names, executable paths, availability and
 devices. A backend without a general executable exposes its source directory
 and requires an authored driver command. It does not recommend a simulator for a scene or material.
@@ -118,7 +118,7 @@ checks establish interface integrity; Scorer assesses task fulfillment independe
 ## Template configuration
 
 The complete learned tree has `godot/` and `physics/` subdirectories. Editor may
-add reusable implementations supported by dev evidence and submit the complete
+add reusable implementations supported by learning evidence and submit the complete
 candidate through validation. Initial `physics/profiles.json` is
 `{"schema_version": 1, "profiles": {}}`; there are no supplied profiles.
 
@@ -131,8 +131,7 @@ Profile scaffolding copies physics support files, merges profile model/action
 values with authored `model.json`/`action.json`, and adds missing semantic labels.
 Nested mappings merge; explicit values, including lists and nulls, win. Physics
 files take precedence over same-named Godot overlay files. Selected backend/profile
-must remain consistent. A missing catalog is empty and never retrieves definitions
-from another snapshot or a shared registry.
+must remain consistent. Catalog discovery uses the selected snapshot; an absent catalog yields an empty set.
 
 Python entries are `scaffold(destination, profile=None, *, templates=None, runtime_assets=None)`, `simulate`,
 `render`, `validate_render`, `restore(..., modes=..., action=...)` and `prepare_first_frame`.
@@ -143,9 +142,9 @@ experiment work uses `--task-dir` to bind the frozen Agent snapshot.
 
 `wrsi tools first-frame SOURCE --output DIRECTORY` normalizes the public frame
 using at most 5% center crop and 832×480 resize. `--estimate-depth` explicitly
-requests VGGT-Omega; no model runs implicitly. Its depth scale is arbitrary and
-its relative confidence is not a probability. Godot depth is camera-Z in scene
-units. These facts do not impose modeling or quality thresholds.
+requests VGGT-Omega inference. Its depth scale is arbitrary, and confidence values
+express relative confidence in the predictions. Godot depth is camera-Z in scene
+units. Interpret depth using the corresponding coordinate and scaling conventions.
 
 Godot capture uses `/data/bin/godot`, Xvfb and `/data/bin/vglrun -d egl`; rendering
 requires hardware graphics. Installed solver entrypoints use their existing

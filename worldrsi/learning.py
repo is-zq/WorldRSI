@@ -89,7 +89,7 @@ def close(source_dir, request):
             for file in sorted((d / "manual-updates").glob("*/*.json")):
                 verify_manual_update(file)
                 updates.append({"path": str(file), "sha256": sha256(file)})
-        result = {"task_id": source["task_id"], "scene_id": source["scene_id"], "status": status,
+        result = {"task_id": source["task_id"], "scene_id": source["scene_id"], "status": status, "source_sha256": digest(source),
                   "best_attempt": request["best_attempt"], "initial_score": p["initial_score"],
                   "best_score": p["best_score"], "gain": gain, "reason": request["reason"],
                   "recovery_condition": request.get("recovery_condition"), "observations": request.get("observations", []),
@@ -106,6 +106,8 @@ def prepare_transfer(source_dir):
     source, experience = read_json(source_dir / "source.json"), read_json(source_dir / "experience.json")
     if experience["status"] != "sufficient_gain":
         raise ValueError("Transfer requires a frozen sufficiently improved experience")
+    if experience["source_sha256"] != digest(source):
+        raise ValueError("Frozen experience must retain its source and snapshot binding")
     for ref in experience["evidence"]:
         if sha256(ref["path"]) != ref["sha256"]:
             raise ValueError("Frozen implementation evidence must retain its hash")
@@ -163,6 +165,15 @@ def accepted_bundle(source_dir):
     for ref in decision["reports"].values():
         if sha256(ref["path"]) != ref["sha256"]:
             raise ValueError("Transfer receipt must retain its scored report binding")
+        evaluation.report(ref["path"])
+    for implementation in decision["implementation"].values():
+        for ref in [implementation["proof"], *implementation["evidence"]]:
+            if sha256(ref["path"]) != ref["sha256"]:
+                raise ValueError("Passed experience must retain its checked target implementation")
+    reports = [evaluation.report(decision["reports"][arm]["path"]) for arm in ("baseline", "candidate")]
+    gains, passed = transfer_gains(*reports)
+    if not passed or gains != decision["gains"]:
+        raise ValueError("Passing receipt requires improvement on each reserved view")
     return {"scene_id": experience["scene_id"], "bundle": experience["bundle"],
             "learning": {k: experience[k] for k in ("initial_score", "best_score", "gain", "reason", "evidence")},
             "transfer": {"passed": True, "receipt_sha256": digest(decision)}}

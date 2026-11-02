@@ -1,7 +1,7 @@
 """Physics-IQ index, historical result import, and independent report helpers.
 
-The main Codex session owns execution. This module only reads/writes files and
-calculates metrics on already locked outputs; it never starts an agent or H3.
+The main Codex session owns execution. This module persists indexes and calculates
+official metrics on locked outputs.
 """
 from __future__ import annotations
 
@@ -59,7 +59,7 @@ def scorer_payload(task_dir, index_dir, *, root=ROOT):
 
 
 def _source_media(path, *, decode=True):
-    """Validate native benchmark GT/masks without transforming or repairing them."""
+    """Validate native benchmark GT/masks against the frozen media contract."""
     media = probe(path, decode=decode)
     if abs(media["fps"] - FPS) > 1e-6 or abs(media["duration"] - 5) > 0.002:
         raise ValueError(f"Benchmark source must be exactly 5 seconds at 24 fps: {path}")
@@ -379,8 +379,7 @@ def finalize_scorer(task_dir, private, judgment, scorer_config=None, *,
 def _score_raw(rows, availability, root):
     """Use IQTable's official formulas and retain missing views with zero credit.
 
-    NaNs are only internal absence markers; they are never written as raw
-    measurements. They cannot enter the reported fixed-denominator mean.
+    Internal absence markers map to zero credit in the fixed-denominator mean.
     """
     import numpy as np
     import pandas as pd

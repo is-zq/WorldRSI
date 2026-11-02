@@ -102,7 +102,7 @@ def begin_round(run_dir):
                       "history": {"path": str(folder / "history.json"), "sha256": digest(prior)}, "branches": []}
             if not (d / "source.json").exists():
                 immutable_json(d / "source.json", record)
-            evaluation.create_task(d / "initial", p, snap["path"], source_dir=d)
+            evaluation.create_task(d / "initial", p, snap, source_dir=d)
             sources.append({"scene_id": scene, "task_id": p["task_id"], "directory": str(d)})
         result = {"round": number, "epoch": epoch, "batch": batch+1, "directory": str(folder),
                   "snapshot_path": snap["path"], "sources": sources, "manuals": None, "candidate": None, "decision": None}
@@ -168,6 +168,10 @@ def candidate(run_dir, policy=None, templates=None):
             raise ValueError("Candidate requires the staged, frozen manuals")
         base = Path(current["snapshot_path"])
         snap = snapshots.freeze(policy or base / "policy", templates=templates or base / "source/templates", manuals=current["manuals"]["output_manuals"])
+        original = snapshots.verify(base)["binding"]
+        fixed = lambda b: {k: v for k, v in b["source"].items() if not k.startswith("templates/")}
+        if snap["binding"]["runtime"] != original["runtime"] or fixed(snap["binding"]) != fixed(original):
+            raise ValueError("Candidate must retain the run's fixed implementation and role configuration")
         if current["candidate"]:
             if current["candidate"]["snapshot_id"] != snap["snapshot_id"]:
                 raise ValueError("Round candidate is already frozen")

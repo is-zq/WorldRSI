@@ -151,7 +151,7 @@ def submit(task_dir, package, provenance, queue=None, root=ROOT):
     with lock(task_dir / ".h3.lock"):
         intent_path = task_dir / "h3.submission.json"
         if intent_path.exists():
-            # Resume uses the original durable package; never reconstruct an already submitted call.
+            # Recovery retains the durable package and its submitted identity.
             intent = read_json(intent_path)
             if intent["expected"]["seed"] != runtime["seed"]:
                 raise ValueError("Existing H3 submission belongs to a different generation seed")
@@ -163,7 +163,7 @@ def submit(task_dir, package, provenance, queue=None, root=ROOT):
             raise ValueError("Cannot generate after locking the output")
         spec = validate_package(package, task, provenance)
         if spec["manifest"].get("seed", runtime["seed"]) not in (42, 43, 44, 45):
-            raise ValueError("Request seed differs from the frozen dev/validation generation seed")
+            raise ValueError("Package seed must belong to the configured generation seed set")
         local = task_dir / "h3-inputs"
         if local.exists():
             # Only an unpublished pre-intent copy is replaceable.
@@ -196,7 +196,7 @@ def _publish(queue, intent, local):
     if destination.parent not in input_roots or destination.name != qid:
         raise ValueError("Submission input path must identify its task in an H3 input directory")
     with lock(queue / ".worldrsi-locks" / f"{qid}.lock"):
-        # Both queues share IDs and outputs; never duplicate a package moved between them.
+        # Both queues share submission identities and completion storage.
         for location in (queue / "outputs" / qid / "inputs", *(path / qid for path in input_roots)):
             if location.exists():
                 for p, expected in intent["spec"]["files"].items():

@@ -52,7 +52,7 @@ def check_video(path, frames, width=WIDTH, height=HEIGHT):
 
 
 def normalize(source, target, frames):
-    """Fixed prefix and center crop. Resampling preserves speed and never extends GT."""
+    """Fixed prefix and center crop with playback-speed-preserving resampling."""
     target = Path(target)
     target.parent.mkdir(parents=True, exist_ok=True)
     if target.exists():

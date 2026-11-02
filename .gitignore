@@ -20,7 +20,6 @@ snapshots/
 reports/
 logs/
 /prepared
-/protocol/data_revision.json
 *.lock
 *.tmp
 .env

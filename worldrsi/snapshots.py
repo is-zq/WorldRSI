@@ -42,7 +42,7 @@ def freeze(policy=None, root=ROOT, *, templates=None, manuals=None):
         try:
             shutil.copytree(policy, stage / "policy")
             shutil.copytree(manual_source, stage / "manuals")
-            # Publish the full snapshot atomically; an interrupted copy is never a usable version.
+            # Publish the complete verified snapshot atomically.
             shutil.copytree(runtime["h3"]["skill"], stage / "h3-prompt-writing")
             for directory, origin in directories.items():
                 if origin.exists():

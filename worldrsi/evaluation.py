@@ -20,7 +20,9 @@ def generation_seed(context):
 
 
 def create_task(directory, public, snapshot, *, seed=42, source_dir=None, intervention=None, modeling_task=None):
-    snap = snapshots.verify(snapshot)
+    snap = snapshot if isinstance(snapshot, dict) else snapshots.verify(snapshot)
+    if digest(snap["binding"]) != snap["snapshot_id"]:
+        raise ValueError("Task requires a complete, verified snapshot binding")
     for field, expected in public["input_hashes"].items():
         if sha256(public[field]) != expected:
             raise ValueError("Public input must match its frozen hash")
@@ -61,7 +63,7 @@ def prepare(directory, index, snapshot, phase, *, task_ids=None, intervention=No
     immutable_json(directory / "evaluation.json", record)
     for seed in SEEDS:
         for public in rows:
-            create_task(outputs[str(seed)][public["task_id"]], public, snap["path"], seed=seed, intervention=intervention,
+            create_task(outputs[str(seed)][public["task_id"]], public, snap, seed=seed, intervention=intervention,
                         modeling_task=outputs["42"][public["task_id"]] if seed != 42 else None)
     return record
 
@@ -71,6 +73,11 @@ def load(directory):
     plan = read_json(p / "evaluation.json" if p.is_dir() else p)
     if plan["seeds"] != SEEDS or set(plan["outputs"]) != {str(s) for s in SEEDS}:
         raise ValueError("Evaluation requires four declared generation seeds")
+    key = digest({"snapshot": plan["snapshot_id"], "revision": plan["data_revision"],
+                  "phase": plan["phase"], "ids": plan["task_ids"], "intervention": plan["intervention"],
+                  "seeds": plan["seeds"], "scorer": plan["scorer"], "boundary": plan["boundary"]})
+    if key != plan["key"] or any(set(rows) != set(plan["task_ids"]) for rows in plan["outputs"].values()):
+        raise ValueError("Evaluation plan must retain its frozen identity and input membership")
     return plan
 
 
@@ -188,6 +195,7 @@ def finalize(directory):
               "categories": {c: statistics.mean(v) for c, v in categories.items()},
               "partitions": {c: {"per_seed": v, "mean": statistics.mean(v), "sample_std": statistics.stdev(v)} for c, v in partitions.items()},
               "costs": total_cost(costs), "evidence": evidence}
+    record["report_sha256"] = digest(record)
     return immutable_json(Path(plan["directory"]) / "report.json", record)
 
 
@@ -195,6 +203,8 @@ def report(path):
     p = Path(path)
     p = p / "report.json" if p.is_dir() else p
     result = read_json(p)
+    if result.get("report_sha256") != digest({k: v for k, v in result.items() if k != "report_sha256"}):
+        raise ValueError("Report content must match its immutable identity")
     plan = load(p.parent)
     if any(result.get(k) != v for k, v in plan.items()):
         raise ValueError("Report must preserve its frozen evaluation plan")
