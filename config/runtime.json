@@ -1,0 +1,74 @@
+{
+  "schema_version": 1,
+  "roles": {
+    "executor": {
+      "model": "gpt-6.1-sol",
+      "model_reasoning_effort": "max"
+    },
+    "reflector": {
+      "model": "gpt-6-astra",
+      "model_reasoning_effort": "xhigh"
+    },
+    "editor": {
+      "model": "gpt-6-astra",
+      "model_reasoning_effort": "xhigh"
+    },
+    "manual_manager": {
+      "model": "gpt-6-astra",
+      "model_reasoning_effort": "xhigh"
+    },
+    "scorer": {
+      "model": "gpt-6.1-sol",
+      "model_reasoning_effort": "max"
+    }
+  },
+  "environment": "API-World",
+  "h3": {
+    "queue": "/data/h3-inference",
+    "schema_version": 2,
+    "width": 832,
+    "height": 480,
+    "fps": 24,
+    "steps": 50,
+    "seed": 42,
+    "model": "/data/DiffSynth-Studio/models/MiniMax/MiniMax-H3/Ref2VA",
+    "minimum_frames": 96,
+    "skill": "/data/.codex/skills/h3-prompt-writing",
+    "execution": "external_file_queue"
+  },
+  "schedule": {
+    "shuffle_seed": 20261020,
+    "batch_size": 11,
+    "batches_per_epoch": 3,
+    "max_epochs": 4,
+    "max_rounds": 12,
+    "patience": 5
+  },
+  "results_root": "/data/WorldRSI/reports",
+  "physics_iq": "/data/physics-iq-verified-benchmark",
+  "protocol": "physics-iq-cross-view-v1",
+  "generation_seeds": {
+    "learning": [
+      42
+    ],
+    "transfer": [
+      42,
+      43,
+      44,
+      45
+    ],
+    "validation": [
+      42,
+      43,
+      44,
+      45
+    ],
+    "test": [
+      42,
+      43,
+      44,
+      45
+    ]
+  },
+  "first_frames": "/data/physics-iq-verified-benchmark/physics-IQ-benchmark-verified/first-frames"
+}

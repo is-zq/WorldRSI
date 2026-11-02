@@ -1,0 +1,20 @@
+config_version=5
+
+[application]
+config/name="WorldRSI Scene"
+run/main_scene="res://main.tscn"
+
+[display]
+window/size/viewport_width=832
+window/size/viewport_height=480
+window/size/window_width_override=832
+window/size/window_height_override=480
+
+[physics]
+common/physics_ticks_per_second=24
+common/physics_interpolation=false
+
+[rendering]
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"
+textures/default_filters/use_nearest_mipmap_filter=false

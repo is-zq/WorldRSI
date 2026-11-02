@@ -1,0 +1,96 @@
+{
+  "schema_version": 1,
+  "view_seed": 20261020,
+  "groups": {
+    "learning": {
+      "Solid Mechanics": [
+        "ball-hits-nothing",
+        "ball-and-block-fall",
+        "ball-ramp",
+        "ball-train",
+        "balls-collide",
+        "cut-orange",
+        "duck-and-dominos",
+        "duck-static",
+        "magnet-transparent-peakaboo",
+        "marble-run-y",
+        "mug-breaks",
+        "roll-front-box",
+        "roll-in-box",
+        "silk-cover",
+        "single-cradle",
+        "smiley-ball-rotates",
+        "unstable-block-stack",
+        "weight-on-paper",
+        "weight-protects-duck"
+      ],
+      "Fluid Dynamics": [
+        "blow-balloon",
+        "fill-glass-red-drink",
+        "match",
+        "paint-on-glass",
+        "paper-fall-water",
+        "potato-in-water",
+        "water-in-juice"
+      ],
+      "Optics": [
+        "light-on-mug-block",
+        "light-on-statue",
+        "mirror-ball-rotate",
+        "mirror-teapot-rotate"
+      ],
+      "Thermodynamics": [
+        "lit-candle",
+        "paper-smoke"
+      ],
+      "Magnetism": [
+        "magnet-domino"
+      ]
+    },
+    "validation": {
+      "Solid Mechanics": [
+        "ball-behind-rotating-paper",
+        "ball-hits-duck",
+        "ball-in-basket",
+        "ball-in-sand",
+        "ball-rolls-off",
+        "ball-rolls-on-glass",
+        "block-domino",
+        "cut-paper",
+        "dominos-with-space",
+        "double-cradle",
+        "duck-falls-in-box",
+        "marble-run-x",
+        "roll-behind-box",
+        "solid-ball-peakaboo",
+        "stable-blocks",
+        "teapot-rotates",
+        "two-balls-pass",
+        "weight-on-ceramic",
+        "weight-on-pillow"
+      ],
+      "Fluid Dynamics": [
+        "domino-in-juice",
+        "glass-stays-same",
+        "juice-in-water",
+        "liquid-on-duck",
+        "liquid-overfill",
+        "napkin-soak",
+        "paper-in-water",
+        "siphon"
+      ],
+      "Optics": [
+        "light-on-block",
+        "light-on-mug",
+        "mirror-ball-fall",
+        "rolling-reflection"
+      ],
+      "Thermodynamics": [
+        "match-blows-balloon"
+      ],
+      "Magnetism": [
+        "magnet-wrench"
+      ]
+    }
+  }
+}
