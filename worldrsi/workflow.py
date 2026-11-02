@@ -14,19 +14,21 @@ def epoch_order(scenes, epoch):
     return [order[i:i+11] for i in range(0, 33, 11)]
 
 
-def init_run(name, index, snapshot, root=ROOT):
+def init_run(name, index, snapshot, root=ROOT, *, mode="full"):
     root, index = Path(root).resolve(), Path(index).resolve()
     m, snap = data.verify(index, check_inputs=True), snapshots.verify(snapshot)
     directory = root / "runs" / identifier(name)
     scenes = [r["scene_id"] for r in data.tasks(index, "learning")]
+    evaluation.views_for(mode)
     record = {"protocol": "physics-iq-cross-view-v1", "run_id": name, "directory": str(directory),
               "index_dir": str(index), "data_revision": m["revision"], "initial_snapshot": snap["path"],
-              "current_snapshot": snap["path"], "reference": None, "rounds": [], "tests": [],
+              "current_snapshot": snap["path"], "reference": None, "rounds": [], "tests": [], "mode": mode,
+              "initial_test_plan": None, "initial_test": None,
               "rejection_streak": 0, "schedule": {str(e): epoch_order(scenes, e) for e in range(1, 5)}}
     path = directory / "run.json"
     if path.exists():
         old = read_json(path)
-        if any(old[k] != record[k] for k in ("protocol", "index_dir", "data_revision", "initial_snapshot")):
+        if any(old[k] != record[k] for k in ("protocol", "index_dir", "data_revision", "initial_snapshot", "mode")):
             raise ValueError("Run name must retain its original bindings")
         return old
     return immutable_json(path, record)
@@ -34,7 +36,43 @@ def init_run(name, index, snapshot, root=ROOT):
 
 def initial_reference(run_dir):
     state = read_json(Path(run_dir) / "run.json")
-    return evaluation.prepare(Path(run_dir) / "initial-validation", state["index_dir"], state["initial_snapshot"], "validation")
+    return evaluation.prepare(Path(run_dir) / "initial-validation", state["index_dir"], state["initial_snapshot"], "validation", mode=state["mode"])
+
+
+def prepare_initial_test(run_dir):
+    run_dir = Path(run_dir).resolve()
+    with lock(run_dir / ".run.lock"):
+        state = read_json(run_dir / "run.json")
+        if state.get("initial_test_plan"):
+            return evaluation.load(state["initial_test_plan"])
+        plan = evaluation.prepare(run_dir / "initial-test", state["index_dir"], state["initial_snapshot"], "test",
+                                  mode=state["mode"], boundary={"stage": "initial", "run_id": state["run_id"]})
+        state["initial_test_plan"] = str(run_dir / "initial-test/evaluation.json")
+        write_json(run_dir / "run.json", state)
+        return plan
+
+
+def register_initial_test(run_dir, report_path=None):
+    run_dir = Path(run_dir).resolve()
+    with lock(run_dir / ".run.lock"):
+        state = read_json(run_dir / "run.json")
+        plan = evaluation.load(state["initial_test_plan"])
+        path = Path(report_path or plan["directory"])
+        path = path / "report.json" if path.is_dir() else path
+        r = evaluation.report(path)
+        if (r["phase"] != "test" or r["snapshot_id"] != plan["snapshot_id"] or r["data_revision"] != plan["data_revision"]
+                or r["count"] != evaluation.input_count("test", r["mode"]) or r["boundary"] != plan["boundary"]
+                or r["key"] != plan["key"] and not evaluation.is_completion(plan, r)):
+            raise ValueError("Initial report must complete its frozen evaluation or its full extension")
+        receipt = {"path": str(path), "sha256": sha256(path), "snapshot_id": r["snapshot_id"], "complete": True,
+                   "mode": r["mode"], "seeds": r["seeds"], "mean": r["mean"], "sample_std": r["sample_std"]}
+        previous = state.get("initial_test")
+        if previous and previous.get("complete") and previous != receipt:
+            if not evaluation.is_completion(evaluation.report(previous["path"]), r):
+                raise ValueError("Initial report updates must extend the registered coverage")
+        state["initial_test"] = receipt
+        write_json(run_dir / "run.json", state)
+        return receipt
 
 
 def set_reference(run_dir):
@@ -44,7 +82,8 @@ def set_reference(run_dir):
         path = run_dir / "initial-validation/report.json"
         report = evaluation.report(path)
         snap = snapshots.verify(state["initial_snapshot"])
-        if state["rounds"] or report["snapshot_id"] != snap["snapshot_id"] or report["data_revision"] != state["data_revision"] or report["count"] != 99:
+        if (state["rounds"] or report["snapshot_id"] != snap["snapshot_id"] or report["data_revision"] != state["data_revision"]
+                or report["mode"] != state["mode"] or report["count"] != evaluation.input_count("validation", state["mode"])):
             raise ValueError("Initial reference requires the initial complete Agent and full validation")
         state["reference"] = {"path": str(path.resolve()), "sha256": sha256(path)}
         write_json(run_dir / "run.json", state)
@@ -181,7 +220,7 @@ def candidate(run_dir, policy=None, templates=None):
             location = str(Path(state["reference"]["path"]).parent)
         else:
             location = str(Path(current["directory"]) / "validation")
-            evaluation.prepare(location, state["index_dir"], snap["path"], "validation")
+            evaluation.prepare(location, state["index_dir"], snap["path"], "validation", mode=state["mode"])
         current["candidate"] = {"snapshot_id": snap["snapshot_id"], "snapshot_path": snap["path"], "evaluation": location}
         write_json(run_dir / "run.json", state)
         return current["candidate"]
@@ -214,13 +253,14 @@ def decide(run_dir):
         return current["decision"]
 
 
-def prepare_test(run_dir):
+def prepare_test(run_dir, mode=None):
     state = read_json(Path(run_dir) / "run.json")
     boundary = pending_test(state)
     if boundary is None:
         raise ValueError("A complete test requires a pending epoch or stopping boundary")
     d = Path(run_dir) / "tests" / f"after-r{boundary['after_round']:03d}"
-    return evaluation.prepare(d, state["index_dir"], state["current_snapshot"], "test", boundary={**boundary, "run_id": state["run_id"]})
+    return evaluation.prepare(d, state["index_dir"], state["current_snapshot"], "test", mode=mode or state["mode"],
+                              boundary={**boundary, "run_id": state["run_id"]})
 
 
 def register_test(run_dir, report_path):
@@ -229,12 +269,23 @@ def register_test(run_dir, report_path):
         state = read_json(run_dir / "run.json")
         expected = pending_test(state)
         r = evaluation.report(report_path)
-        if (expected is None or r["phase"] != "test" or r["count"] != 198
-                or r["boundary"] != {**expected, "run_id": state["run_id"]}
-                or r["snapshot_id"] != snapshots.verify(state["current_snapshot"])["snapshot_id"]):
-            raise ValueError("Boundary test must evaluate the current complete Agent on all 198 inputs")
+        if r["phase"] != "test" or r["count"] != evaluation.input_count("test", r["mode"]) or r["data_revision"] != state["data_revision"]:
+            raise ValueError("Boundary report must cover the declared test scope")
+        prior = next((t for t in reversed(state["tests"]) if r["boundary"] == {k: t[k] for k in ("after_round", "epoch", "label")} | {"run_id": state["run_id"]}), None)
+        if prior:
+            if sha256(prior["path"]) != prior["sha256"]:
+                raise ValueError("Registered test must retain its report binding")
+            previous = evaluation.report(prior["path"])
+            if previous == r:
+                return {"complete": stopping(state), "test": prior}
+            if not evaluation.is_completion(previous, r):
+                raise ValueError("A supplemental report must extend its registered quick evaluation")
+            expected = {k: prior[k] for k in ("after_round", "epoch", "label")}
+        elif (expected is None or r["boundary"] != {**expected, "run_id": state["run_id"]}
+              or r["snapshot_id"] != snapshots.verify(state["current_snapshot"])["snapshot_id"]):
+            raise ValueError("Boundary report must evaluate the scheduled complete Agent")
         p = Path(report_path)
         p = p / "report.json" if p.is_dir() else p
-        state["tests"].append({**expected, "path": str(p.resolve()), "sha256": sha256(p)})
+        state["tests"].append({**expected, "path": str(p.resolve()), "sha256": sha256(p), "mode": r["mode"]})
         write_json(run_dir / "run.json", state)
         return {"complete": stopping(state), "test": state["tests"][-1]}

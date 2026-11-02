@@ -11,6 +11,9 @@ API-World environment and `./wrsi`. The main session dispatches the five roles
 using each packet's `dispatch.json`, registering real session IDs and usage.
 
 Begin with the frozen data index, empty initial Agent and initial validation.
+Choose quick or full evaluation mode for the run. Both use four seeds; quick
+selects the first view for validation and tests. Initial testing can run alongside
+initial validation. `wrsi eval status` identifies pending modeling and generations.
 Dispatch all eleven source Executors from the batch snapshot, then advance each
 source as evidence arrives. Reflector determines sufficient gain from the initial
 score and tested improvement, freezes its bundle, and completes its source session.
@@ -19,7 +22,9 @@ Both view means must improve before Editor receives the bundle.
 
 After every source and gate finishes, dispatch Manual Manager, publish its manuals,
 then dispatch Editor and validate the complete candidate once. Use the deterministic
-promotion helper. Complete each pending full test before the next learning round.
+promotion helper. Complete each pending boundary test before the next learning round.
+Use `wrsi eval extend` to complete quick evaluations with the other two views,
+retaining the original snapshot and existing generations.
 
 Scorer owns private scoring inputs. Reflector uses learning-view feedback; Editor
 and shared history use passed bundles and aggregate validation summaries. Transfer

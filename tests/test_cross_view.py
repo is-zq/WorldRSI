@@ -249,5 +249,38 @@ class CrossViewTests(unittest.TestCase):
         self.assertEqual(read_json(Path(batch["directory"])/"history.json"),old_history)
         self.assertEqual(len(read_json(Path(next_batch["directory"])/"history.json")["validation"]),1)
 
+    def test_quick_run_starts_learning_while_initial_test_is_pending(self):
+        state=workflow.init_run("quick",self.index,self.snap["path"],root=self.root,mode="quick")
+        run=Path(state["directory"])
+        test=workflow.prepare_initial_test(run)
+        self.assertEqual(test["expected_generations"],264)
+        val=workflow.initial_reference(run)
+        self.assertEqual(val["expected_generations"],132)
+        fixture_report(val["directory"])
+        workflow.set_reference(run)
+        batch=workflow.begin_round(run)
+        self.assertEqual(len(batch["sources"]),11)
+        fixture_report(test["directory"])
+        self.assertEqual(workflow.register_initial_test(run)["seeds"],[42,43,44,45])
+
+    def test_full_test_completion_registers_after_agent_advances(self):
+        state=workflow.init_run("quick",self.index,self.snap["path"],root=self.root,mode="quick")
+        run=Path(state["directory"])
+        state["rounds"]=[{"decision":{"accepted":False}} for _ in range(3)]
+        write_json(run/"run.json",state)
+        quick=workflow.prepare_test(run)
+        fixture_report(quick["directory"])
+        workflow.register_test(run,quick["directory"])
+        full=evaluation.extend(quick["directory"],self.root/"full-test")
+        fixture_report(full["directory"])
+        changed=self.root/"other-manuals";shutil.copytree(ROOT/"manuals",changed)
+        (changed/"operations.md").write_text("# Updated fixture operations\n")
+        advanced=snapshots.freeze(manuals=changed)
+        state=read_json(run/"run.json");state["current_snapshot"]=advanced["path"];write_json(run/"run.json",state)
+        result=workflow.register_test(run,full["directory"])
+        self.assertEqual(result["test"]["mode"],"full")
+        self.assertEqual([r["mode"] for r in read_json(run/"run.json")["tests"]],["quick","full"])
+        self.assertIsNone(workflow.pending_test(read_json(run/"run.json")))
+
 
 if __name__ == "__main__": unittest.main()

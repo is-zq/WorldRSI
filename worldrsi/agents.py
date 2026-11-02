@@ -10,13 +10,18 @@ def packet(role, destination, *, task_dir=None, source_dir=None, run_dir=None, i
     destination = Path(destination).resolve()
     runtime = read_json(ROOT / "config/runtime.json")
     scope = None
+    instructions = ROOT / "prompts" / (role + ".md")
+    settings = runtime["roles"][role]
     if role == "executor":
         c = read_json(Path(task_dir) / "task.json")
         snapshots.verify(c["snapshot_path"])
+        instructions = Path(c["snapshot_path"]) / "source/prompts/executor.md"
+        settings = c["roles"][role]
         if c.get("modeling_task"):
             raise ValueError("Executor modeling uses the primary seed task")
         payload = {k: c[k] for k in ("public", "phase", "snapshot_path", "policy_snapshot", "manual_snapshot", "template_snapshot", "intervention")}
         payload["task_dir"] = str(Path(task_dir).resolve())
+        payload["tool_documentation"] = str(Path(c["snapshot_path"]) / "source/docs/tools.md")
     elif role == "scorer":
         payload = benchmark.scorer_payload(task_dir, index_dir)
     elif role == "reflector":
@@ -61,11 +66,11 @@ def packet(role, destination, *, task_dir=None, source_dir=None, run_dir=None, i
     else:
         raise ValueError("Role must be one of the configured experiment roles")
     immutable_json(destination / "input.json", payload)
-    write_text(destination / "instructions.md", (ROOT / "prompts" / (role + ".md")).read_text())
+    write_text(destination / "instructions.md", instructions.read_text())
     if (destination / "dispatch.json").exists():
         return read_json(destination / "dispatch.json")
     message = f"Read {destination / 'instructions.md'} and {destination / 'input.json'}. Execute the supplied role task and persist its artifacts."
-    spec = sessions.dispatch(role, role + "_" + digest(str(destination))[:12], message, runtime["roles"][role],
+    spec = sessions.dispatch(role, role + "_" + digest(str(destination))[:12], message, settings,
                              scope=scope, restart=restart, reason=reason)
     return immutable_json(destination / "dispatch.json", spec)
 

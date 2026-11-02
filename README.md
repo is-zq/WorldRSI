@@ -9,6 +9,10 @@ All stages use the official dual-take Benchmark score and take-1 images from
 `/data/physics-iq-verified-benchmark/physics-IQ-benchmark-verified/first-frames`.
 The scene partition is frozen in `protocol/split.json`.
 
+Runs select `quick` (first view) or `full` (three views) for validation and tests,
+with four seeds in either mode. `wrsi eval extend` completes a quick evaluation
+using its existing tasks and adding the remaining views.
+
 - [Protocol](docs/protocol.md): views, roles, sufficient gain and promotion.
 - [Operation](docs/operation.md): commands, role packets and recovery.
 - [Tools](docs/tools.md): simulation, rendering and condition interfaces.

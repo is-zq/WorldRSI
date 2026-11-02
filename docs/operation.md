@@ -29,6 +29,14 @@ snapshot and frozen history. Repeating it resumes the current round.
 
 ## Role dispatch
 
+Use `--mode quick` on `run init` for first-view validation and testing, or
+`--mode full` for all three views. Both modes use four seeds. The run records this
+choice; transfer always evaluates the learning scene's other two views.
+
+`wrsi run initial-test RUN_DIR` prepares the initial test independently of
+initial validation. They can be dispatched concurrently. Record the completed
+initial test with `wrsi run register-initial-test RUN_DIR`.
+
 ```bash
 ./wrsi agent packet PACKET_DIR --role executor --task-dir TASK_DIR
 ./wrsi agent packet PACKET_DIR --role scorer --task-dir TASK_DIR --index INDEX_DIR
@@ -112,6 +120,24 @@ TEXT`, then independently scored. Pending external/scoring failures remain
 recoverable from their registered submissions and saved artifacts.
 
 ## Round promotion and tests
+
+`wrsi eval status EVALUATION_DIR` lists inputs needing modeling and outstanding
+generations. Completed outputs are retained when submitting or collecting again.
+
+To complete a quick evaluation:
+
+```bash
+./wrsi eval extend QUICK_EVALUATION_DIR --destination FULL_EVALUATION_DIR
+./wrsi eval status FULL_EVALUATION_DIR
+```
+
+Dispatch Executors for the listed modeling tasks, then use the usual submit,
+collect, score and finalize commands. The plan shares the quick evaluation's
+task directories and creates tasks for the remaining two views. Its snapshot,
+data revision, seeds and boundary remain bound. An epoch's full report can be
+registered after its quick report, including after learning has advanced to
+another snapshot. Register an initial test extension with
+`wrsi run register-initial-test RUN_DIR --report FULL_EVALUATION_DIR`.
 
 When all eleven sources and transfer outcomes are finalized, dispatch Manual
 Manager, then publish its complete manuals and dispatch Editor:

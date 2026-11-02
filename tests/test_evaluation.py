@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 from worldrsi import evaluation, h3, snapshots
 from worldrsi.common import ROOT, read_json, sha256, write_json
+from worldrsi.media import lock_failure
 from test_cross_view import fixture_index
 
 
@@ -75,6 +76,53 @@ class EvaluationTests(unittest.TestCase):
         self.assertEqual(plan["seeds"],[42,43,44,45])
         self.assertEqual(evaluation.generation_seed({"phase":"learning","generation_seed":42}),42)
         with self.assertRaises(ValueError):evaluation.generation_seed({"phase":"learning","generation_seed":43})
+
+    def test_quick_views_and_full_completion_preserve_existing_tasks(self):
+        for phase, count, extra in (("validation",33,264),("test",66,528)):
+            quick=evaluation.prepare(self.root/(phase+'-quick'),self.index,self.snap["path"],phase,mode="quick")
+            self.assertEqual(len(quick["task_ids"]),count)
+            self.assertEqual(quick["views"],["perspective-left"])
+            self.assertEqual(quick["expected_generations"],count*4)
+            for rows in quick["outputs"].values():
+                for d in rows.values():
+                    lock_failure(d,read_json(Path(d)/"task.json")["public"],"Completed fixture output failure")
+            full=evaluation.extend(quick["directory"],self.root/(phase+'-full'))
+            self.assertEqual(full["additional_generations"],extra)
+            self.assertTrue(evaluation.is_completion(quick,full))
+            for seed in evaluation.SEEDS:
+                for tid,d in quick["outputs"][str(seed)].items():
+                    self.assertEqual(full["outputs"][str(seed)][tid],d)
+            status=evaluation.pending(full["directory"])
+            self.assertEqual(status["completed_generations"],count*4)
+            self.assertEqual(status["pending_generations"],extra)
+            self.assertEqual(len(status["modeling_tasks"]),count*2)
+            self.assertEqual(evaluation.extend(quick["directory"],full["directory"]),full)
+
+    def test_full_report_accounts_for_shared_quick_results(self):
+        quick=evaluation.prepare(self.root/"quick-report",self.index,self.snap["path"],"test",mode="quick")
+        write_json(Path(quick["directory"])/"reuse-source.json",{"source_snapshot_id":self.snap["snapshot_id"]})
+        full=evaluation.extend(quick["directory"],self.root/"full-report")
+        for rows in full["outputs"].values():
+            for d in rows.values():write_json(Path(d)/"scoring/score.json",{"fixture":True})
+        with patch("worldrsi.data.validate_index",return_value={}),patch("worldrsi.evaluation.score",return_value={"valid_output":False,"score":0}):
+            result=evaluation.finalize(full["directory"])
+        self.assertEqual(result["reused_generations"],264)
+        self.assertEqual(result["fresh_generations"],528)
+        self.assertEqual(result["generation_origin"]["source_snapshot_id"],self.snap["snapshot_id"])
+
+    def test_completed_generations_resume_from_local_evidence(self):
+        plan=evaluation.prepare(self.root/"local",self.index,self.snap["path"],"test",mode="quick")
+        tid,_=self.package(plan)
+        with patch("worldrsi.h3.validate_package",side_effect=self.validated):
+            original=evaluation.submit(plan["directory"],tid,queue=self.root/"queue")
+        for seed in evaluation.SEEDS:
+            d=Path(plan["outputs"][str(seed)][tid])
+            intent=read_json(d/"h3.submission.json")
+            write_json(d/"h3-output/complete.json",{"task_id":intent["queue_id"],"metadata":{"seed":seed}})
+            output=d/"output.mp4";output.write_bytes(b"fixture-video")
+            write_json(d/"output.lock.json",{"status":"valid","path":str(output),"sha256":sha256(output)})
+        with patch("worldrsi.h3.submit",side_effect=AssertionError("Completed generations use their saved submission")):
+            self.assertEqual(evaluation.submit(plan["directory"],tid,queue=self.root/"queue"),original)
 
 
 if __name__=="__main__":unittest.main()

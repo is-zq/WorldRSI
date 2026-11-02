@@ -19,6 +19,11 @@ Learning explores with seed 42. Transfer, validation and tests use 42–45. Each
 input and experimental arm is modeled once; its frozen conditions serve all four
 generation seeds. Initial validation establishes the reference on 99 inputs.
 
+Evaluation mode is recorded per run. `full` uses all three views; `quick` uses
+the first declared view (`perspective-left`) for validation and tests. Both use
+seeds 42–45. Quick validation has 33 inputs and quick testing has 66 inputs.
+Learning retains its fixed view assignment and the two reserved transfer views.
+
 Run up to four epochs (twelve rounds). After at least one epoch, five consecutive
 rejections end learning. Test the current Agent at every epoch boundary and once
 at a partial stopping boundary.
@@ -71,6 +76,14 @@ Agent. Report the four seed means, overall mean, sample standard deviation
 (ddof=1), categories and learning/validation partitions. The full set includes
 both the learning and selection scenes; these partitions describe the exposure
 of the evaluated Agent. Test results belong to the main-session report.
+
+A quick evaluation can be extended to full coverage for the same snapshot and
+boundary. The full plan references the quick plan's existing tasks and adds the
+other two views. Existing submissions, conditioning and scores retain their
+identities. A test extension adds 528 generations after all 264 quick generations
+are complete. Reports retain both coverage levels and their source relationship.
+Initial testing may progress alongside initial validation; learning can begin
+once the validation reference is established.
 
 Evaluation identities bind phase, data, complete snapshot, intervention, seeds,
 scoring protocol and test boundary. Recovery resumes the same submissions.
