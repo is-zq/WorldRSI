@@ -2,6 +2,7 @@ from pathlib import Path
 import shutil
 import tempfile
 import unittest
+from unittest.mock import patch
 
 import cv2
 import numpy as np
@@ -74,6 +75,31 @@ class BenchmarkTests(unittest.TestCase):
             self.assertEqual(Path(row["first_frame"]).parent,self.data/"first-frames")
             self.assertIn("_take-1_",row["first_frame"])
         self.assertEqual({p["view"] for p in self.manifest["binding"]["private"]},set(benchmark.VIEWS))
+
+    def test_reuse_bound_source_validation_and_detect_implementation_changes(self):
+        binding={"implementation":self.manifest["binding"]["implementation"],"sources":{}}
+        for row in self.manifest["binding"]["private"]:
+            for key in ("gt_v1","gt_v2","mask_v1","mask_v2"):
+                binding["sources"][row[key]]={"sha256":row["sha256"][key],"media":row["media"][key]}
+        target=self.root/"reused-index"
+        write_json(target/"source-validation.json",{"binding":binding,"revision":digest(binding)})
+        with patch("worldrsi.benchmark._source_media",side_effect=AssertionError("Matching sources use validated metadata")):
+            result=benchmark.build_index(target,source_root=self.root/"source",expected_scenes=1)
+        self.assertEqual(result["status"],"validated")
+        one_source=next(iter(binding["sources"]))
+        binding["sources"][one_source]["sha256"]="0"*64
+        refreshed=self.root/"refreshed-index"
+        write_json(refreshed/"source-validation.json",{"binding":binding,"revision":digest(binding)})
+        with patch("worldrsi.benchmark._source_media",wraps=benchmark._source_media) as decode:
+            benchmark.build_index(refreshed,source_root=self.root/"source",expected_scenes=1)
+        self.assertEqual(decode.call_count,1)
+        self.assertEqual(str(decode.call_args.args[0]),one_source)
+        module=self.root/"source/physiq/binary_mask_generator.py"
+        original=module.read_bytes()
+        try:
+            module.write_bytes(original+b"\n# fixture change\n")
+            with self.assertRaises(ValueError):benchmark.validate_index(target,decode=False)
+        finally:module.write_bytes(original)
 
     def test_all_phases_use_official_components_and_bound_score(self):
         values=[]

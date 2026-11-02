@@ -13,6 +13,11 @@ and its private scoring row. Measurements save raw arrays, generated masks,
 component values and evidence hashes in the task's `scoring/physics_iq/` directory.
 Descriptive observations and uncertainty accompany the independent score.
 
+Preparation can reuse complete media validation from
+`benchmark/source-validation.json`. The cache binds the official implementation,
+source paths, file hashes and decoded media metadata. Each current source is
+hashed before reuse; sources with changed hashes receive fresh media validation.
+
 ```bash
 ./wrsi score measure TASK --definition SCORER_PACKET/input.json
 ./wrsi score sample TASK --source VIDEO --frames 0 35 119 --reason 'Inspect contact and final position'

@@ -125,6 +125,20 @@ class CrossViewTests(unittest.TestCase):
             with patch("worldrsi.evaluation.score",side_effect=read_score), self.assertRaises(ValueError):
                 learning.close(source,record)
 
+    def test_reflector_summary_and_frozen_learning_evidence(self):
+        _,batch=self.run_start()
+        source,record,read_score=self.scored_source(batch["sources"][0]["directory"],0.2,0.4)
+        packet=self.root/"reflector-packet"
+        with patch("worldrsi.evaluation.score",side_effect=read_score):
+            agents.packet("reflector",packet,source_dir=source)
+            learning.close(source,record)
+        payload=read_json(packet/"input.json")
+        self.assertEqual(payload["progress"]["initial_score"],0.2)
+        self.assertEqual(payload["attempts"]["improve"]["score"]["score"],0.4)
+        self.assertNotIn("attempts",payload["progress"])
+        write_json(source/"branches/improve/scoring/score.json",{"score":0.5})
+        with self.assertRaises(ValueError):learning.prepare_transfer(source)
+
     def test_transfer_pairs_and_privacy_projection(self):
         run, batch = self.run_start()
         source, record, read_score = self.scored_source(batch["sources"][0]["directory"],0.2,0.4)

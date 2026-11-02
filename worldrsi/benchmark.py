@@ -92,6 +92,11 @@ def build_index(destination, source_root=BENCHMARK_ROOT, *, expected_scenes=66, 
     if len({row["scene"] for row in scenes}) != len(scenes):
         raise ValueError("Duplicate benchmark scenes")
     public, private, source_files, seen_ids = [], [], {}, set()
+    cache_path = destination / "source-validation.json"
+    cache = read_json(cache_path) if cache_path.exists() else None
+    if cache and (digest(cache["binding"]) != cache["revision"]
+                  or cache["binding"]["implementation"] != source_evidence(source_root)):
+        raise ValueError("Source validation cache must bind the current measurement implementation")
     source_files[str(descriptions)] = sha256(descriptions)
     for scene in scenes:
         takes = {row["take"]: row for row in scene["takes"]}
@@ -125,7 +130,15 @@ def build_index(destination, source_root=BENCHMARK_ROOT, *, expected_scenes=66, 
                 source_files[str(path)] = hashes[name]
                 if name != "first_frame":
                     try:
-                        media[name] = _source_media(path, decode=decode)
+                        checked = cache["binding"]["sources"].get(str(path)) if cache else None
+                        saved = checked.get("media", {}) if checked else {}
+                        reusable = (decode and checked and checked.get("sha256") == hashes[name]
+                                    and saved.get("frames") == 120 and saved.get("uniform") is True
+                                    and abs(saved.get("fps", 0) - FPS) < 1e-6
+                                    and abs(saved.get("duration", 0) - 5) < 0.002
+                                    and abs(saved.get("start_time", 1)) < 1e-4
+                                    and saved.get("width", 0) > 0 and saved.get("height", 0) > 0)
+                        media[name] = saved if reusable else _source_media(path, decode=decode)
                     except (ValueError, OSError, subprocess.CalledProcessError) as error:
                         raise ValueError(f"Fixed benchmark source failed validation: {path}: {error}") from error
                 else:
@@ -159,6 +172,7 @@ def build_index(destination, source_root=BENCHMARK_ROOT, *, expected_scenes=66, 
     binding = {"schema_version": 1, "benchmark": "Physics-IQ Verified", "scene_count": expected_scenes,
                "task_count": expected_scenes * 3, "sources": source_files, "public": public,
                "private": private, "source_validation": "full_decode" if decode else "metadata_only",
+               "source_validation_cache": cache["revision"] if cache else None,
                "first_frame_source": str(source_data / "first-frames"),
                "implementation": source_evidence(source_root)}
     revision = digest(binding)
@@ -182,6 +196,9 @@ def validate_index(index_dir, *, decode=True):
     _require_first_frames_manifest(manifest)
     if digest(manifest["binding"]) != manifest["revision"]:
         raise ValueError("Frozen benchmark manifest has changed")
+    implementation = manifest["binding"]["implementation"]
+    if implementation != source_evidence(implementation["root"]):
+        raise ValueError("Scoring implementation must match the frozen benchmark revision")
     public, private = jsonl(index_dir / "public/test.jsonl"), jsonl(index_dir / "private/test.jsonl")
     expected_public = [{**row, "data_revision": manifest["revision"]} for row in manifest["binding"]["public"]]
     if public != expected_public or private != manifest["binding"]["private"]:

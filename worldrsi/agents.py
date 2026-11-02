@@ -31,10 +31,16 @@ def packet(role, destination, *, task_dir=None, source_dir=None, run_dir=None, i
         directories = {"initial": scope / "initial", **{b["id"]: Path(b["directory"]) for b in source["branches"]}}
         summaries = {}
         for bid, d in directories.items():
-            summaries[bid] = {"score": p["attempts"].get(bid), "decisions": [
+            score = p["attempts"].get(bid)
+            feedback = ({k: score[k] for k in ("score", "valid_output", "observations", "uncertainties") if k in score}
+                        if score is not None else None)
+            if score and score.get("components"):
+                feedback["components"] = {k: score["components"][k] for k in ("path", "sha256")}
+            summaries[bid] = {"score": feedback, "decisions": [
                 {"before": read_json(f), "after": read_json(f.with_name("after.json")) if f.with_name("after.json").exists() else None}
                 for f in sorted((d / "trace").glob("*/before.json"))], "task_dir": str(d)}
-        payload = {"source_dir": str(scope), "progress": p, "attempts": summaries, "history": prior,
+        payload = {"source_dir": str(scope), "progress": {k: v for k, v in p.items() if k != "attempts"},
+                   "attempts": summaries, "history": prior,
                    "cost_directory": str(scope / "reflection")}
     elif role in ("editor", "manual_manager"):
         scope = Path(run_dir).resolve()

@@ -101,16 +101,26 @@ def close(source_dir, request):
         return result
 
 
-def prepare_transfer(source_dir):
+def verify_experience(source_dir):
     source_dir = Path(source_dir).resolve()
     source, experience = read_json(source_dir / "source.json"), read_json(source_dir / "experience.json")
-    if experience["status"] != "sufficient_gain":
-        raise ValueError("Transfer requires a frozen sufficiently improved experience")
     if experience["source_sha256"] != digest(source):
         raise ValueError("Frozen experience must retain its source and snapshot binding")
+    paths = {"initial": source_dir / "initial", **{b["id"]: Path(b["directory"]) for b in source["branches"]}}
+    for name, expected in experience["scores"].items():
+        if digest(read_json(paths[name] / "scoring/score.json")) != expected:
+            raise ValueError("Learning evidence must retain its frozen score binding")
     for ref in experience["evidence"]:
         if sha256(ref["path"]) != ref["sha256"]:
             raise ValueError("Frozen implementation evidence must retain its hash")
+    return source, experience
+
+
+def prepare_transfer(source_dir):
+    source_dir = Path(source_dir).resolve()
+    source, experience = verify_experience(source_dir)
+    if experience["status"] != "sufficient_gain":
+        raise ValueError("Transfer requires a frozen sufficiently improved experience")
     rows = [r for r in data.tasks(source["index_dir"], "transfer") if r["scene_id"] == source["scene_id"]]
     ids = [r["task_id"] for r in rows]
     intervention = {"bundle": experience["bundle"], "experience_sha256": digest(experience)}
@@ -162,6 +172,7 @@ def accepted_bundle(source_dir):
         raise ValueError("Transfer decision must bind the source experience")
     if not decision["passed"]:
         return None
+    verify_experience(source_dir)
     for ref in decision["reports"].values():
         if sha256(ref["path"]) != ref["sha256"]:
             raise ValueError("Transfer receipt must retain its scored report binding")
