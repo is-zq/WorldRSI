@@ -18,6 +18,8 @@ them into three batches of eleven. All batch sources use one Agent/history snaps
 Learning, transfer, validation and tests all use seeds 42–45. Each
 input and experimental arm is modeled once; its frozen conditions serve all four
 generation seeds. Initial validation establishes the reference on 99 inputs.
+Initial evaluation and the first learning batch run concurrently; candidate
+validation and promotion require the initial reference.
 
 Evaluation mode is recorded per run. `full` uses all three views; `quick` uses
 the first declared view (`perspective-left`) for validation and tests. Both use
@@ -100,8 +102,7 @@ intervention, seeds and scoring protocol. Initial validation is a projection of
 the initial test. The test Scorer measures the complete test batch once. The
 validation Scorer calls the batch script to verify and reuse its subset without
 remeasurement; then finalize both reports. Retain test source bindings and
-measured costs in the validation report. Learning begins once that
-validation reference is established. Different snapshots cannot share scores.
+measured costs in the validation report. Different snapshots cannot share scores.
 
 Evaluation identities bind phase, data, complete snapshot, intervention, seeds,
 scoring protocol and test boundary. Recovery resumes the same submissions.

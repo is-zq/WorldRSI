@@ -18,17 +18,19 @@ The snapshot command returns its immutable path. Evaluation preparation writes
 evaluation.json and seeds/42/TASK_ID through seeds/45/TASK_ID. Initial validation
 automatically prepares initial testing and references its
 validation subset. Dispatch one Executor per test input at seed 42, then use the
-shared evaluation procedure below. Score the full test plan once, then have the
+shared evaluation procedure below. Start learning with `./wrsi run begin RUN_DIR`.
+Score the full test plan once, then have the
 validation Scorer run its batch to verify and reuse the matching test scores.
 Finalize both reports. After initial validation:
 
 ```bash
 ./wrsi run set-reference RUN_DIR
-./wrsi run begin RUN_DIR
 ```
 
 `run begin` creates eleven sources and returns their directories, initial tasks,
 snapshot and frozen history. Repeating it resumes the current round.
+Initial evaluation and the first learning batch run concurrently; register the
+initial reference before candidate validation or promotion.
 
 ## Role dispatch
 

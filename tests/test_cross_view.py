@@ -73,6 +73,25 @@ class CrossViewTests(unittest.TestCase):
         workflow.set_reference(run)
         return run, workflow.begin_round(run)
 
+    def test_initial_learning_can_overlap_evaluation_without_promotion(self):
+        state = workflow.init_run("parallel", self.index, self.snap["path"], root=self.root)
+        run = Path(state["directory"])
+        batch = workflow.begin_round(run)
+        self.assertEqual(len(batch["sources"]), 11)
+        self.assertTrue(batch["initial_evaluation_pending"])
+        self.assertEqual(batch["snapshot_path"], state["initial_snapshot"])
+        self.assertEqual(read_json(Path(batch["directory"]) / "history.json"), {"bundles": [], "validation": []})
+        self.assertEqual(workflow.begin_round(run), batch)
+        with self.assertRaisesRegex(ValueError, "initial validation reference"):
+            workflow.candidate(run)
+        with self.assertRaisesRegex(ValueError, "initial validation reference"):
+            workflow.decide(run)
+        plan = workflow.initial_reference(run)
+        fixture_report(plan["directory"])
+        workflow.set_reference(run)
+        self.assertIsNotNone(read_json(run / "run.json")["reference"])
+        self.assertEqual(workflow.begin_round(run), batch)
+
     def scored_source(self, source, initial, best):
         source = Path(source)
         def read_score(path):

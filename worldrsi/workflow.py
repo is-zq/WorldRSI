@@ -86,7 +86,10 @@ def set_reference(run_dir):
         path = run_dir / "initial-validation/report.json"
         report = evaluation.report(path)
         snap = snapshots.verify(state["initial_snapshot"])
-        if (state["rounds"] or report["snapshot_id"] != snap["snapshot_id"] or report["data_revision"] != state["data_revision"]
+        early_round = (len(state["rounds"]) == 1 and state["rounds"][0].get("initial_evaluation_pending")
+                       and state["rounds"][0]["decision"] is None
+                       and state["rounds"][0]["snapshot_path"] == state["initial_snapshot"])
+        if (state["rounds"] and not early_round or report["snapshot_id"] != snap["snapshot_id"] or report["data_revision"] != state["data_revision"]
                 or report["mode"] != state["mode"] or report["count"] != evaluation.input_count("validation", state["mode"])):
             raise ValueError("Initial reference requires the initial complete Agent and full validation")
         state["reference"] = {"path": str(path.resolve()), "sha256": sha256(path)}
@@ -122,12 +125,17 @@ def history(run_dir):
 
 def begin_round(run_dir):
     run_dir = Path(run_dir).resolve()
+    initial_reference(run_dir)  # Bind initial evaluation without nesting the run lock.
     with lock(run_dir / ".run.lock"):
         state = read_json(run_dir / "run.json")
         if state["rounds"] and state["rounds"][-1].get("decision") is None:
             return state["rounds"][-1]
-        if state["reference"] is None:
+        early = state["reference"] is None and not state["rounds"]
+        if state["reference"] is None and not early:
             raise ValueError("Learning requires an initial validation reference")
+        if early:
+            if state["current_snapshot"] != state["initial_snapshot"]:
+                raise ValueError("Parallel initial learning requires the frozen initial Agent")
         if pending_test(state) or stopping(state):
             raise ValueError("Next learning round requires an open schedule with completed boundary tests")
         number = len(state["rounds"]) + 1
@@ -150,6 +158,8 @@ def begin_round(run_dir):
             sources.append({"scene_id": scene, "task_id": p["task_id"], "directory": str(d)})
         result = {"round": number, "epoch": epoch, "batch": batch+1, "directory": str(folder),
                   "snapshot_path": snap["path"], "sources": sources, "manuals": None, "candidate": None, "decision": None}
+        if early:
+            result["initial_evaluation_pending"] = True
         state["rounds"].append(result)
         write_json(run_dir / "run.json", state)
         return result
@@ -206,6 +216,8 @@ def candidate(run_dir, policy=None, templates=None):
     run_dir = Path(run_dir)
     with lock(run_dir / ".run.lock"):
         state = read_json(run_dir / "run.json")
+        if state["reference"] is None:
+            raise ValueError("Candidate validation requires the initial validation reference")
         current = state["rounds"][-1]
         completed_sources(current)
         if not current["manuals"] or tree(current["manuals"]["output_manuals"]) != current["manuals"]["hashes"]:
@@ -238,6 +250,8 @@ def decide(run_dir):
         current = state["rounds"][-1]
         if current["decision"]:
             return current["decision"]
+        if state["reference"] is None:
+            raise ValueError("Promotion requires the initial validation reference")
         if sha256(state["reference"]["path"]) != state["reference"]["sha256"]:
             raise ValueError("Reference report must retain its registered hash")
         c = current["candidate"]
