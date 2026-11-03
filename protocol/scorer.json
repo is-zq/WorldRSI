@@ -3,7 +3,7 @@
   "protocol": "physics-iq-components-v1",
   "metric": "final_score_view",
   "model": "gpt-6.1-sol",
-  "model_reasoning_effort": "max",
+  "model_reasoning_effort": "high",
   "implementation": "official_native_gt_dual_take",
   "comparison_epsilon": 1e-12
 }

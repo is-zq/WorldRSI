@@ -13,6 +13,8 @@ def summarize(run_dir):
         parent = costs.parent
         context = parent / "task.json"
         phase = read_json(context)["phase"] if context.exists() else "coordination"
+        if (parent / "evaluation.json").exists():
+            phase = read_json(parent / "evaluation.json")["phase"]
         if (parent / "reuse.json").exists():
             phase = "reused_test"
         groups[phase].append(parent)

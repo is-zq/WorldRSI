@@ -36,7 +36,11 @@ def init_run(name, index, snapshot, root=ROOT, *, mode="full"):
 
 def initial_reference(run_dir):
     state = read_json(Path(run_dir) / "run.json")
-    return evaluation.prepare(Path(run_dir) / "initial-validation", state["index_dir"], state["initial_snapshot"], "validation", mode=state["mode"])
+    destination = Path(run_dir) / "initial-validation"
+    if (destination / "evaluation.json").exists():
+        return evaluation.load(destination)
+    test = prepare_initial_test(run_dir)
+    return evaluation.validation_from_test(test["directory"], destination, mode=state["mode"])
 
 
 def prepare_initial_test(run_dir):
@@ -141,7 +145,8 @@ def begin_round(run_dir):
                       "history": {"path": str(folder / "history.json"), "sha256": digest(prior)}, "branches": []}
             if not (d / "source.json").exists():
                 immutable_json(d / "source.json", record)
-            evaluation.create_task(d / "initial", p, snap, source_dir=d)
+            evaluation.prepare(d / "initial", state["index_dir"], snap["path"], "learning",
+                               task_ids=[p["task_id"]], source_dir=d)
             sources.append({"scene_id": scene, "task_id": p["task_id"], "directory": str(d)})
         result = {"round": number, "epoch": epoch, "batch": batch+1, "directory": str(folder),
                   "snapshot_path": snap["path"], "sources": sources, "manuals": None, "candidate": None, "decision": None}

@@ -15,7 +15,7 @@ cyclically: eleven scenes per learning view. This assignment stays fixed across
 epochs. Epoch e shuffles sorted scene names with seed 20261020+e and partitions
 them into three batches of eleven. All batch sources use one Agent/history snapshot.
 
-Learning explores with seed 42. Transfer, validation and tests use 42–45. Each
+Learning, transfer, validation and tests all use seeds 42–45. Each
 input and experimental arm is modeled once; its frozen conditions serve all four
 generation seeds. Initial validation establishes the reference on 99 inputs.
 
@@ -32,9 +32,12 @@ at a partial stopping boundary.
 
 Executor records P (physical), R (rendered) and M (conditioning) choices before
 execution, implements the public task, checks artifacts and records tool updates.
-Scorer independently measures the locked output. Reflector uses its learning
-view's evidence to choose further experiments and assess improvement against that
-source's initial score.
+Scorer only invokes the official scoring script and returns numerical artifacts;
+it does not write analysis, observations or qualitative judgments. Each learning
+attempt receives four seed scores and their arithmetic mean (including zero for
+failed outputs). Reflector analyzes the scores, component evidence, outputs and
+execution records itself to choose experiments and assess improvement against the
+initial four-seed mean.
 
 Reflector judges whether the gain is sufficient using the initial score, remaining
 headroom and actual improvement. Low starting scores call for larger gains; high
@@ -52,9 +55,18 @@ must pass. A passed group establishes the tested combination's effect.
 
 The main session retains transfer details and failed bundles. Shared history and
 Editor receive passed bundles, learning-view evidence and the passing receipt.
-Reflector's history is frozen at batch start. Executor and Scorer use fresh task
-sessions; Reflector continues within an open source; Editor and Manual Manager
-continue within a run.
+Reflector's history is frozen at batch start. Executor uses a fresh task session.
+Each learning source task has one Scorer, continued for its initial and subsequent
+attempts. Each validation, test and transfer-arm evaluation has its own Scorer.
+Retries stay within that scope; Scorer is not shared across the run. Scorer uses
+`gpt-6.1-sol` with `high` reasoning effort. Reflector continues within an open
+source; Editor and Manual Manager continue within a run.
+
+Each learning attempt invokes the scoring script once for its four seeds.
+Transfer, validation and test evaluations invoke it once for all planned inputs
+and seeds. The script retains per-output components, scores and evidence;
+infrastructure failures resume the batch and skip verified completed scores.
+Reflector receives per-seed scores and their mean, not Scorer-authored analysis.
 
 ## Complete-Agent validation
 
@@ -71,8 +83,8 @@ Agent components and the validation reference atomically.
 
 ## Tests and reporting
 
-Full tests independently execute 198 inputs × four seeds at the actual current
-Agent. Report the four seed means, overall mean, sample standard deviation
+Full tests execute 198 inputs × four seeds at the actual current Agent. Report
+the four seed means, overall mean, sample standard deviation
 (ddof=1), categories and learning/validation partitions. The full set includes
 both the learning and selection scenes; these partitions describe the exposure
 of the evaluated Agent. Test results belong to the main-session report.
@@ -82,8 +94,14 @@ boundary. The full plan references the quick plan's existing tasks and adds the
 other two views. Existing submissions, conditioning and scores retain their
 identities. A test extension adds 528 generations after all 264 quick generations
 are complete. Reports retain both coverage levels and their source relationship.
-Initial testing may progress alongside initial validation; learning can begin
-once the validation reference is established.
+When validation and testing overlap, validation reuses the corresponding test
+outputs and scores for the same complete Agent snapshot, data revision, inputs,
+intervention, seeds and scoring protocol. Initial validation is a projection of
+the initial test. The test Scorer measures the complete test batch once. The
+validation Scorer calls the batch script to verify and reuse its subset without
+remeasurement; then finalize both reports. Retain test source bindings and
+measured costs in the validation report. Learning begins once that
+validation reference is established. Different snapshots cannot share scores.
 
 Evaluation identities bind phase, data, complete snapshot, intervention, seeds,
 scoring protocol and test boundary. Recovery resumes the same submissions.

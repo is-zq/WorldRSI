@@ -41,9 +41,8 @@ def _scorer_config(config=None, *, root=ROOT, context=None):
     fixed = read_json(root / "config/runtime.json")["roles"]["scorer"]
     if any(config.get(key) != value for key, value in fixed.items()):
         raise ValueError("Benchmark Scorer configuration differs from the fixed role")
-    frozen = (context or {}).get("roles", {}).get("scorer", fixed)
-    if frozen != fixed:
-        raise ValueError("Test task snapshot uses a different Scorer role configuration")
+    # Scorer is a script-calling evaluator, configured independently of the
+    # frozen Agent that produced the output. Keep that original Agent untouched.
     return config
 
 
@@ -368,8 +367,6 @@ def finalize_scorer(task_dir, private, judgment, scorer_config=None, *,
             raise ValueError("Test observations require a description")
         observations.append({"observation": observation["observation"],
                              "evidence": _evidence_references(task_dir, observation.get("evidence", []))})
-    if locked["status"] == "valid" and not observations:
-        raise ValueError("An independent benchmark Scorer must record evidence-backed observations")
     for call in judgment.get("tool_calls", []):
         if not call.get("name"):
             raise ValueError("Scorer tool calls require a name")
@@ -380,7 +377,7 @@ def finalize_scorer(task_dir, private, judgment, scorer_config=None, *,
     result = {"schema_version": 1, "protocol": SCORER_VERSION, "task_id": private["task_id"],
               "snapshot_id": context["snapshot_id"], "data_revision": context["public"]["data_revision"],
               "output_lock_sha256": digest(locked), "private_sha256": digest(private), "scorer": config,
-              "session_id": session, "sampling": "autonomous_evidence_driven", "valid_output": locked["status"] == "valid",
+              "session_id": session, "sampling": "official_components_only", "valid_output": locked["status"] == "valid",
               "zero_view_credit": locked["status"] != "valid", "observations": observations,
               "uncertainties": uncertainties, "tool_calls": tool_calls,
               "usage": judgment.get("usage", {"model_tokens": None}),

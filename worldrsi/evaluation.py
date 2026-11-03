@@ -24,7 +24,7 @@ def input_count(phase, mode):
 
 def generation_seed(context):
     seed = context["generation_seed"]
-    allowed = [42] if context["phase"] == "learning" else SEEDS
+    allowed = SEEDS
     if type(seed) is not int or seed not in allowed:
         raise ValueError("Generation seed must belong to the phase's frozen seed set")
     return seed
@@ -50,14 +50,20 @@ def create_task(directory, public, snapshot, *, seed=42, source_dir=None, interv
 
 
 def prepare(directory, index, snapshot, phase, *, task_ids=None, intervention=None, boundary=None,
-            mode="full", extend_from=None):
+            mode="full", extend_from=None, reuse_test=None, source_dir=None):
     directory, index = Path(directory).resolve(), Path(index).resolve()
     snap = snapshots.verify(snapshot)
     rows = data.tasks(index, phase)
     selected_views = views_for(mode)
     if phase in ("validation", "test"):
         rows = [r for r in rows if r["view"] in selected_views]
-    if phase == "transfer":
+    if phase == "learning":
+        if not task_ids or len(task_ids) != 1:
+            raise ValueError("Learning evaluates one public input across four seeds")
+        rows = [r for r in rows if r["task_id"] in task_ids]
+        if len(rows) != 1:
+            raise ValueError("Learning input must belong to the indexed learning split")
+    elif phase == "transfer":
         if not task_ids or len(task_ids) != 2 or len(set(task_ids)) != 2:
             raise ValueError("Transfer evaluates the two reserved views of one scene")
         rows = [r for r in rows if r["task_id"] in task_ids]
@@ -66,7 +72,7 @@ def prepare(directory, index, snapshot, phase, *, task_ids=None, intervention=No
     elif phase not in ("validation", "test") or len(rows) != input_count(phase, mode) or task_ids is not None:
         raise ValueError("Evaluation requires the complete phase input set")
     views = sorted({r["view"] for r in rows})
-    if phase != "transfer":
+    if phase in ("validation", "test"):
         by_scene = {}
         for row in rows:
             by_scene.setdefault(row["scene_id"], []).append(row["view"])
@@ -86,13 +92,30 @@ def prepare(directory, index, snapshot, phase, *, task_ids=None, intervention=No
             raise ValueError("Full completion requires the same quick evaluation snapshot, inputs, seeds and boundary")
         source_path = Path(inherited["directory"]) / "evaluation.json"
         extension = {"path": str(source_path), "sha256": sha256(source_path)}
-    key = digest({"snapshot": snap["snapshot_id"], "revision": rows[0]["data_revision"],
+    reuse = None
+    test = load(reuse_test) if reuse_test else None
+    if test:
+        if (phase != "validation" or test["phase"] != "test"
+                or test["snapshot_id"] != snap["snapshot_id"] or test["data_revision"] != rows[0]["data_revision"]
+                or test["scorer"] != config or test["seeds"] != SEEDS or test["intervention"] != intervention):
+            raise ValueError("Validation reuse requires a test of the same Agent, data, seeds, intervention and scorer")
+        source_path = Path(test["directory"]) / "evaluation.json"
+        reuse = {"path": str(source_path), "sha256": sha256(source_path)}
+    key = digest({**({"reuse_test": reuse} if reuse else {}), "snapshot": snap["snapshot_id"], "revision": rows[0]["data_revision"],
                   "phase": phase, "ids": [r["task_id"] for r in rows], "intervention": intervention,
                   "seeds": SEEDS, "views": views, "mode": mode, "extended_from": extension,
                   "scorer": config, "boundary": boundary})
     outputs = {str(seed): {r["task_id"]: str(directory / "seeds" / str(seed) / r["task_id"]) for r in rows} for seed in SEEDS}
+    if phase == "learning":
+        outputs["42"][rows[0]["task_id"]] = str(directory)
+    if test:
+        for seed in SEEDS:
+            outputs[str(seed)].update({t: d for t, d in test["outputs"][str(seed)].items() if t in outputs[str(seed)]})
     if inherited:
         for seed in SEEDS:
+            if test and any(t in test["outputs"][str(seed)] and d != test["outputs"][str(seed)][t]
+                            for t, d in inherited["outputs"][str(seed)].items()):
+                raise ValueError("Reuse cannot replace frozen extension outputs")
             outputs[str(seed)].update(inherited["outputs"][str(seed)])
     record = {"key": key, "directory": str(directory), "index_dir": str(index), "phase": phase,
               "snapshot_id": snap["snapshot_id"], "snapshot_path": snap["path"],
@@ -100,13 +123,44 @@ def prepare(directory, index, snapshot, phase, *, task_ids=None, intervention=No
               "task_ids": [r["task_id"] for r in rows], "seeds": SEEDS, "views": views, "mode": mode,
               "extended_from": extension, "outputs": outputs,
               "intervention": intervention, "boundary": boundary, "expected_generations": len(rows) * 4}
-    record["additional_generations"] = (len(rows) - (len(inherited["task_ids"]) if inherited else 0)) * 4
+    if reuse:
+        record["reuse_test"] = reuse
+    shared_ids = (set(inherited["task_ids"]) if inherited else set()) | (set(test["task_ids"]) if test else set())
+    record["additional_generations"] = len({r["task_id"] for r in rows} - shared_ids) * 4
     immutable_json(directory / "evaluation.json", record)
     for seed in SEEDS:
         for public in rows:
-            create_task(outputs[str(seed)][public["task_id"]], public, snap, seed=seed, intervention=intervention,
+            if test and public["task_id"] in test["task_ids"]:
+                context = read_json(Path(outputs[str(seed)][public["task_id"]]) / "task.json")
+                if {**context["public"], "split": "validation"} != public:
+                    raise ValueError("Reused test input must match the indexed validation input")
+                continue
+            create_task(outputs[str(seed)][public["task_id"]], public, snap, seed=seed, intervention=intervention, source_dir=source_dir,
                         modeling_task=outputs["42"][public["task_id"]] if seed != 42 else None)
     return record
+
+
+def prepare_learning(directory, index=None):
+    """Add the three replicas to an existing primary task without rewriting it."""
+    directory = Path(directory).resolve()
+    if (directory / "evaluation.json").exists():
+        plan = load(directory)
+        if plan["phase"] != "learning":
+            raise ValueError("Learning preparation requires a learning task")
+        return plan
+    context = read_json(directory / "task.json")
+    if context["phase"] != "learning" or context["generation_seed"] != 42:
+        raise ValueError("Learning preparation uses the primary seed-42 task")
+    source = Path(context["source_dir"]) if context.get("source_dir") else None
+    if source:
+        if (source / "experience.json").exists():
+            raise ValueError("Do not change a closed source's frozen learning evidence")
+        index = index or read_json(source / "source.json")["index_dir"]
+    if not index:
+        raise ValueError("Learning preparation requires its source index or --index")
+    return prepare(directory, index, context["snapshot_path"], "learning",
+                   task_ids=[context["public"]["task_id"]], source_dir=source,
+                   intervention=context["intervention"])
 
 
 def load(directory):
@@ -114,7 +168,7 @@ def load(directory):
     plan = read_json(p / "evaluation.json" if p.is_dir() else p)
     if plan["seeds"] != SEEDS or set(plan["outputs"]) != {str(s) for s in SEEDS}:
         raise ValueError("Evaluation requires four declared generation seeds")
-    key = digest({"snapshot": plan["snapshot_id"], "revision": plan["data_revision"],
+    key = digest({**({"reuse_test": plan["reuse_test"]} if plan.get("reuse_test") else {}), "snapshot": plan["snapshot_id"], "revision": plan["data_revision"],
                   "phase": plan["phase"], "ids": plan["task_ids"], "intervention": plan["intervention"],
                   "seeds": plan["seeds"], "views": plan["views"], "mode": plan["mode"],
                   "extended_from": plan["extended_from"], "scorer": plan["scorer"], "boundary": plan["boundary"]})
@@ -122,7 +176,25 @@ def load(directory):
         raise ValueError("Evaluation plan must retain its frozen identity and input membership")
     if plan["extended_from"] and sha256(plan["extended_from"]["path"]) != plan["extended_from"]["sha256"]:
         raise ValueError("Completion must retain its source evaluation binding")
+    if plan.get("reuse_test"):
+        origin = plan["reuse_test"]
+        if sha256(origin["path"]) != origin["sha256"]:
+            raise ValueError("Validation must retain its source test binding")
+        test = load(origin["path"])
+        if (plan["phase"] != "validation" or test["phase"] != "test"
+                or any(plan[k] != test[k] for k in ("snapshot_id", "data_revision", "scorer", "seeds", "intervention"))):
+            raise ValueError("Validation reuse must bind a compatible test")
+        for seed in SEEDS:
+            for tid in set(plan["task_ids"]) & set(test["task_ids"]):
+                if plan["outputs"][str(seed)][tid] != test["outputs"][str(seed)][tid]:
+                    raise ValueError("Validation must reuse the original test tasks and scores")
     return plan
+
+
+def validation_from_test(directory, destination, mode=None):
+    test = load(directory)
+    return prepare(destination, test["index_dir"], test["snapshot_path"], "validation",
+                   mode=mode or test["mode"], intervention=test["intervention"], reuse_test=directory)
 
 
 def extend(directory, destination):
@@ -132,7 +204,8 @@ def extend(directory, destination):
     if Path(destination).resolve() == Path(p["directory"]):
         raise ValueError("Full completion requires its own evaluation directory")
     return prepare(destination, p["index_dir"], p["snapshot_path"], p["phase"], mode="full",
-                   intervention=p["intervention"], boundary=p["boundary"], extend_from=p["directory"])
+                   intervention=p["intervention"], boundary=p["boundary"], extend_from=p["directory"],
+                   reuse_test=p.get("reuse_test", {}).get("path"))
 
 
 def pending(directory):
@@ -254,6 +327,9 @@ def finalize(directory):
     reused, incremental = [], []
     inherited = load(plan["extended_from"]["path"]) if plan["extended_from"] else None
     shared = {str(Path(d)) for rows in inherited["outputs"].values() for d in rows.values()} if inherited else set()
+    test = load(plan["reuse_test"]["path"]) if plan.get("reuse_test") else None
+    test_shared = {d for rows in test["outputs"].values() for d in rows.values()} if test else set()
+    shared |= test_shared
     manifest = data.verify(plan["index_dir"])
     learning_scenes = manifest["binding"]["learning_views"]
     for seed in SEEDS:
@@ -261,7 +337,7 @@ def finalize(directory):
         for tid in plan["task_ids"]:
             d = Path(plan["outputs"][str(seed)][tid])
             context = read_json(d / "task.json")
-            if (context["snapshot_id"] != plan["snapshot_id"] or context["public"] != rows[tid]
+            if (context["snapshot_id"] != plan["snapshot_id"] or ({**context["public"], "split": "validation"} if str(d) in test_shared else context["public"]) != rows[tid]
                     or context["intervention"] != plan["intervention"]):
                 raise ValueError("Evaluation task must match its frozen plan")
             record = score(d)
@@ -286,9 +362,9 @@ def finalize(directory):
               "mean": statistics.mean(means), "sample_std": statistics.stdev(means),
               "categories": {c: statistics.mean(v) for c, v in categories.items()},
               "partitions": {c: {"per_seed": v, "mean": statistics.mean(v), "sample_std": statistics.stdev(v)} for c, v in partitions.items()},
-              "costs": total_cost(costs), "evidence": evidence,
+              "costs": total_cost(costs + [Path(plan["directory"])]), "evidence": evidence,
               "reused_generations": len(reused), "fresh_generations": len(incremental),
-              "incremental_costs": total_cost(incremental), "reused_costs": total_cost(reused)}
+              "incremental_costs": total_cost(incremental + [Path(plan["directory"])]), "reused_costs": total_cost(reused)}
     origin = Path(plan["directory"]) / "reuse-source.json"
     if not origin.exists() and inherited:
         origin = Path(inherited["directory"]) / "reuse-source.json"

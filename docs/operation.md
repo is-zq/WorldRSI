@@ -15,9 +15,12 @@ packets, immutable artifacts and explicit pending states.
 ```
 
 The snapshot command returns its immutable path. Evaluation preparation writes
-evaluation.json and seeds/42/TASK_ID through seeds/45/TASK_ID. Dispatch one
-Executor per input at seed 42 to build its conditioning, then use the shared
-evaluation procedure below. After initial validation:
+evaluation.json and seeds/42/TASK_ID through seeds/45/TASK_ID. Initial validation
+automatically prepares initial testing and references its
+validation subset. Dispatch one Executor per test input at seed 42, then use the
+shared evaluation procedure below. Score the full test plan once, then have the
+validation Scorer run its batch to verify and reuse the matching test scores.
+Finalize both reports. After initial validation:
 
 ```bash
 ./wrsi run set-reference RUN_DIR
@@ -33,21 +36,25 @@ Use `--mode quick` on `run init` for first-view validation and testing, or
 `--mode full` for all three views. Both modes use four seeds. The run records this
 choice; transfer always evaluates the learning scene's other two views.
 
-`wrsi run initial-test RUN_DIR` prepares the initial test independently of
-initial validation. They can be dispatched concurrently. Record the completed
+`wrsi run initial-test RUN_DIR` returns the initial test plan also used by initial
+validation. Their shared outputs are generated and scored only once. Record the completed
 initial test with `wrsi run register-initial-test RUN_DIR`.
 
 ```bash
 ./wrsi agent packet PACKET_DIR --role executor --task-dir TASK_DIR
-./wrsi agent packet PACKET_DIR --role scorer --task-dir TASK_DIR --index INDEX_DIR
+./wrsi agent packet PACKET_DIR --role scorer --task-dir LEARNING_ATTEMPT_DIR
+./wrsi agent packet PACKET_DIR --role scorer --evaluation-dir EVALUATION_DIR
 ./wrsi agent packet PACKET_DIR --role reflector --source-dir SOURCE_DIR
 ./wrsi agent packet PACKET_DIR --role manual_manager --run-dir RUN_DIR
 ./wrsi agent packet PACKET_DIR --role editor --run-dir RUN_DIR
 ```
 
 Use a new packet directory for updated evidence. Read dispatch.json and call its
-specified collaboration method and arguments. Persistent roles continue through
-followup_task after registration. For a replacement session, prepare a new packet
+specified collaboration method and arguments. Each learning source task has one
+Scorer across its attempts; each validation, test and transfer-arm evaluation has
+its own Scorer. Register its first dispatch before preparing follow-up packets.
+Scorer uses gpt-6.1-sol/high and only calls scripts. Persistent roles continue
+through followup_task within their scope after registration. For a replacement session, prepare a new packet
 with --restart --reason TEXT. Register actual model, effort and session identity:
 
 ```bash
@@ -70,12 +77,21 @@ decision_refs. After fields: action, artifacts, checks
 ```bash
 ./wrsi tool TASK_DIR STEP_ID -- COMMAND ARGUMENTS
 ./wrsi h3 package TASK_DIR --render RENDER_DIR --modalities semantic depth --prompt H3_PROMPT
-./wrsi h3 submit TASK_DIR
-./wrsi h3 collect TASK_DIR
+./wrsi eval submit LEARNING_ATTEMPT_DIR --task-id TASK_ID
+./wrsi eval collect LEARNING_ATTEMPT_DIR
 ```
 
-After a locked output, dispatch Scorer; its commands and judgment contract are in
-benchmark.md. Then dispatch Reflector. Its experiment request has id, hypothesis,
+Each attempt is an evaluation plan with one input and seeds 42–45. Seed 42 lives
+at the attempt root; replicas use its frozen package. After all four outputs are
+locked, dispatch the source task's Scorer and use `score batch` as below. Record
+usage and run `eval finalize LEARNING_ATTEMPT_DIR` before dispatching Reflector.
+Reflector receives the four scores, their mean and source-local evidence and
+performs the analysis itself. An unfinished seed keeps the attempt pending.
+To resume an open legacy single-seed attempt, first run
+`wrsi eval prepare-learning ATTEMPT_DIR` (or supply `--index` for a standalone
+task). It preserves seed 42 and its submissions/scores, adding the other three
+replicas. A lone seed-42 score is not complete learning feedback. Closed sources
+and their frozen evidence remain unchanged. Its experiment request has id, hypothesis,
 prediction, parent_attempt and executor_instruction:
 
 ```bash
@@ -113,10 +129,33 @@ and evidence:[task-local paths]. Main submits the same frozen package for all se
 ./wrsi transfer finalize SOURCE_DIR
 ```
 
-Dispatch an independent Scorer for every locked seed output before finalizing.
-The same evaluation commands serve transfer, validation and full tests. Failure
+After every planned seed output is locked, deliver one evaluation packet to the
+evaluation's Scorer. It invokes the scoring script once for all tasks and seeds:
+
+```bash
+./wrsi score batch EVALUATION_DIR --definition SCORER_PACKET/input.json
+```
+
+The batch writes each output's official components and score. A retry verifies
+and skips finished scores. The same commands serve transfer (one batch per arm),
+validation and tests. Each learning attempt uses the same batch command for its one input × four seeds.
+For overlapping validation and testing, score the test first. Prepare the
+validation projection, dispatch/register its own Scorer as above, and have it
+call the batch script to verify and reuse the test scores without remeasurement:
+
+```bash
+./wrsi eval validation-from-test TEST_EVALUATION_DIR --destination VALIDATION_DIR
+./wrsi score batch VALIDATION_DIR --definition VALIDATION_SCORER_PACKET/input.json
+./wrsi eval finalize VALIDATION_DIR
+```
+
+The projection requires matching Agent, data, intervention, inputs, seeds and
+scorer, and retains the source test plan and task/score identities. Existing frozen
+validation plans are resumed unchanged; use a new destination to create a
+projection. A full extension of a quick projection reuses its existing test views
+and evaluates the remaining views in one batch. Failure
 to produce a valid final video is recorded with `wrsi output fail TASK --reason
-TEXT`, then independently scored. Pending external/scoring failures remain
+TEXT`, then scored by that task/evaluation's Scorer. Pending external/scoring failures remain
 recoverable from their registered submissions and saved artifacts.
 
 ## Round promotion and tests

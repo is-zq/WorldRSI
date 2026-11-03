@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from worldrsi import evaluation, h3, snapshots
+from worldrsi import data, evaluation, h3, snapshots
 from worldrsi.common import ROOT, read_json, sha256, write_json
 from worldrsi.media import lock_failure
 from test_cross_view import fixture_index
@@ -35,8 +35,9 @@ class EvaluationTests(unittest.TestCase):
                 "binding":{"trajectory_sha256":"trajectory","camera_sha256":"camera"},"media":[],"references":[]}
 
     def test_seed_fanout_queue_routing_and_resume(self):
-        for phase,count in (("validation",396),("test",792)):
-            plan=evaluation.prepare(self.root/phase,self.index,self.snap["path"],phase)
+        for phase,count in (("learning",4),("validation",396),("test",792)):
+            plan=evaluation.prepare(self.root/phase,self.index,self.snap["path"],phase,
+                                    task_ids=[data.tasks(self.index,"learning")[0]["task_id"]] if phase=="learning" else None)
             self.assertEqual(plan["expected_generations"],count)
             tid,primary=self.package(plan)
             with patch("worldrsi.h3.validate_package",side_effect=self.validated):
@@ -75,7 +76,8 @@ class EvaluationTests(unittest.TestCase):
             evaluation.prepare(self.root/"test",self.index,self.snap["path"],"test",boundary={"after_round":6})
         self.assertEqual(plan["seeds"],[42,43,44,45])
         self.assertEqual(evaluation.generation_seed({"phase":"learning","generation_seed":42}),42)
-        with self.assertRaises(ValueError):evaluation.generation_seed({"phase":"learning","generation_seed":43})
+        self.assertEqual(evaluation.generation_seed({"phase":"learning","generation_seed":43}),43)
+        with self.assertRaises(ValueError):evaluation.generation_seed({"phase":"learning","generation_seed":46})
 
     def test_quick_views_and_full_completion_preserve_existing_tasks(self):
         for phase, count, extra in (("validation",33,264),("test",66,528)):

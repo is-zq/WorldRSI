@@ -36,21 +36,21 @@ def parser():
     t.add_argument("operation", choices=["prepare", "finalize"])
     t.add_argument("source")
     e = commands.add_parser("eval")
-    e.add_argument("operation", choices=["submit", "collect", "finalize", "extend", "status"])
+    e.add_argument("operation", choices=["submit", "collect", "finalize", "extend", "status", "validation-from-test", "prepare-learning"])
     e.add_argument("directory")
     e.add_argument("--task-id")
     e.add_argument("--destination")
+    e.add_argument("--index")
     a = commands.add_parser("agent")
     a.add_argument("operation", choices=["packet", "register", "usage"])
     a.add_argument("destination")
-    for option in ("role", "task-dir", "source-dir", "run-dir", "index", "session-id", "model", "effort", "record", "reason"):
+    for option in ("role", "task-dir", "evaluation-dir", "source-dir", "run-dir", "index", "session-id", "model", "effort", "record", "reason"):
         a.add_argument("--" + option)
     a.add_argument("--restart", action="store_true")
     s = commands.add_parser("score")
-    s.add_argument("operation", choices=["measure", "finalize", "sample"])
+    s.add_argument("operation", choices=["sample", "batch"])
     s.add_argument("task_dir")
     s.add_argument("--definition")
-    s.add_argument("--judgment")
     s.add_argument("--source")
     s.add_argument("--frames", nargs="+", type=int)
     s.add_argument("--reason")
@@ -116,19 +116,22 @@ def execute(a):
     if cmd == "transfer":
         return {"prepare": learning.prepare_transfer, "finalize": learning.finalize_transfer}[a.operation](a.source)
     if cmd == "eval":
+        if a.operation == "prepare-learning": return evaluation.prepare_learning(a.directory, a.index)
         if a.operation == "submit": return evaluation.submit(a.directory, a.task_id)
+        if a.operation == "validation-from-test": return evaluation.validation_from_test(a.directory, a.destination)
         if a.operation == "extend": return evaluation.extend(a.directory, a.destination)
         if a.operation == "status": return evaluation.pending(a.directory)
         return {"collect": evaluation.collect, "finalize": evaluation.finalize}[a.operation](a.directory)
     if cmd == "agent":
         if a.operation == "packet":
             return agents.packet(a.role, a.destination, task_dir=a.task_dir, source_dir=a.source_dir, run_dir=a.run_dir,
-                                 index_dir=a.index, restart=a.restart, reason=a.reason)
+                                 index_dir=a.index, evaluation_dir=a.evaluation_dir, restart=a.restart, reason=a.reason)
         if a.operation == "register": return sessions.register(a.destination, a.session_id, a.model, a.effort)
         return agents.usage(a.destination, read_json(a.record))
     if cmd == "score":
-        if a.operation == "measure": return benchmark.measure_view(a.task_dir, a.definition)
-        if a.operation == "finalize": return benchmark.finalize_scorer(a.task_dir, a.definition, read_json(a.judgment))
+        if a.operation == "batch":
+            from .scoring import batch
+            return batch(a.task_dir, a.definition)
         from .scoring import evidence
         return evidence(a.task_dir, a.source, a.frames, a.reason, a.crop)
     if cmd == "h3":

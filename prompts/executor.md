@@ -11,9 +11,8 @@ and record artifact checks with `wrsi trace after`. Use `wrsi tool` for metered
 commands. Repair execution issues within this task's project.
 
 Read docs/tools.md and docs/operation.md from the supplied snapshot for interfaces.
-Build package/ and provenance.json using `wrsi h3 package`. For learning, submit
-and collect this task's H3 output. For transfer, validation and test, return the
-frozen package to the main session for four-seed submission. Each input is modeled
+Build package/ and provenance.json using `wrsi h3 package`. In every phase, return
+the frozen package to the main session for submission with seeds 42–45. Each input is modeled
 once; the main session manages replicas.
 
 Apply a supplied intervention as a decision instruction using the current public

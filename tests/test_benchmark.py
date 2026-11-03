@@ -108,8 +108,9 @@ class BenchmarkTests(unittest.TestCase):
             component=benchmark.measure_view(d,private)
             self.assertEqual(component["status"],"measured")
             path=d/"scoring/physics_iq/components.json"
-            result=benchmark.finalize_scorer(d,private,{"session_id":"fixture-scorer", "components":str(path),
-                "observations":[{"observation":"Full timeline measured", "evidence":[str(path)]}]})
+            result=benchmark.finalize_scorer(d,private,{"session_id":"fixture-scorer", "components":str(path)})
+            self.assertEqual(result["observations"],[])
+            self.assertEqual(result["uncertainties"],[])
             values.append(result["score"])
             self.assertEqual(evaluation.score(d),result)
             self.assertGreaterEqual(result["score"],0)

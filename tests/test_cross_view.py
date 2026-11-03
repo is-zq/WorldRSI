@@ -77,12 +77,12 @@ class CrossViewTests(unittest.TestCase):
         source = Path(source)
         def read_score(path):
             return read_json(Path(path) / "scoring/score.json")
-        write_json(source / "initial/scoring/score.json", {"score": initial})
+        fixture_report(source / "initial", value=initial)
         with patch("worldrsi.evaluation.score", side_effect=read_score):
             branch = learning.branch(source, {"id": "improve", "hypothesis": "Different representation helps",
                 "prediction": "More accurate contact", "executor_instruction": "Use continuous collision geometry"})
         d = Path(branch["directory"])
-        write_json(d / "scoring/score.json", {"score": best})
+        fixture_report(d, value=best)
         (d / "checked.txt").write_text("Checked implemented geometry")
         record = {"status": "sufficient_gain", "best_attempt": "improve", "reason": "Gain is sufficient for this initial score and remaining headroom",
                   "evidence": [str(d / "checked.txt")], "observations": ["Remaining appearance uncertainty"],
@@ -136,7 +136,7 @@ class CrossViewTests(unittest.TestCase):
         self.assertEqual(payload["progress"]["initial_score"],0.2)
         self.assertEqual(payload["attempts"]["improve"]["score"]["score"],0.4)
         self.assertNotIn("attempts",payload["progress"])
-        write_json(source/"branches/improve/scoring/score.json",{"score":0.5})
+        write_json(source/"branches/improve/report.json",{"mean":0.5})
         with self.assertRaises(ValueError):learning.prepare_transfer(source)
 
     def test_transfer_pairs_and_privacy_projection(self):

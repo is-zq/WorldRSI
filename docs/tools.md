@@ -113,7 +113,8 @@ Render output includes the project, trajectory, ending state, native depth/norma
 instance arrays, camera metadata, condition videos, a manifest and checks.
 Validation checks hashes, finite states, complete video decoding, common media
 specifications, camera/timeline correspondence, and stable identity codes. These
-checks establish interface integrity; Scorer assesses task fulfillment independently.
+checks establish interface integrity; the scoring script measures outputs and
+Reflector analyzes learning-task fulfillment.
 
 ## Template configuration
 

@@ -12,7 +12,11 @@ Data changes belong to the user. Task indexing and scoring bind the source files
 The main Codex session dispatches Executor, Reflector, Scorer, Editor and Manual
 Manager using each packet's `dispatch.json`. Helpers persist files and evidence.
 Eleven learning sources share a frozen batch-start Agent and decision history.
-Executor receives one public input. Reflector receives its learning view's detailed
+Executor receives one public input. Each learning task and each validation/test
+evaluation has its own Scorer (gpt-6.1-sol/high), which only calls scoring scripts.
+Learning uses the mean of four seeds; Reflector performs the analysis. Evaluations
+score all planned inputs and seeds in one invocation, and overlapping validation
+reuses matching test scores. Reflector receives its learning view's detailed
 evidence and judges sufficient improvement relative to the initial score. Editor
 receives experience bundles with successful two-view transfer receipts. Manual
 Manager consolidates checked learning-stage tool operations. Whole-Agent validation

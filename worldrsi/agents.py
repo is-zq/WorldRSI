@@ -2,11 +2,11 @@
 from pathlib import Path
 
 from .common import ROOT, digest, immutable_json, read_json, sha256, write_text
-from . import benchmark, learning, sessions, snapshots, workflow
+from . import learning, sessions, snapshots, workflow
 
 
 def packet(role, destination, *, task_dir=None, source_dir=None, run_dir=None, index_dir=None,
-           restart=False, reason=None):
+           evaluation_dir=None, restart=False, reason=None):
     destination = Path(destination).resolve()
     runtime = read_json(ROOT / "config/runtime.json")
     scope = None
@@ -23,7 +23,18 @@ def packet(role, destination, *, task_dir=None, source_dir=None, run_dir=None, i
         payload["task_dir"] = str(Path(task_dir).resolve())
         payload["tool_documentation"] = str(Path(c["snapshot_path"]) / "source/docs/tools.md")
     elif role == "scorer":
-        payload = benchmark.scorer_payload(task_dir, index_dir)
+        from . import evaluation
+        if bool(task_dir) == bool(evaluation_dir):
+            raise ValueError("Scorer requires one learning attempt or one complete evaluation")
+        target = Path(task_dir or evaluation_dir).resolve()
+        plan = evaluation.prepare_learning(target, index_dir) if task_dir else evaluation.load(target)
+        if plan["phase"] == "learning":
+            context = read_json(target / "task.json")
+            scope = Path(context["source_dir"]).resolve() if context.get("source_dir") else target
+        else:
+            scope = target
+        payload = {"evaluation_dir": str(target), "evaluation_key": plan["key"],
+                   "cost_directory": str(target), "scorer_scope": str(scope)}
     elif role == "reflector":
         scope = Path(source_dir).resolve()
         if (scope / "experience.json").exists():
@@ -37,7 +48,7 @@ def packet(role, destination, *, task_dir=None, source_dir=None, run_dir=None, i
         summaries = {}
         for bid, d in directories.items():
             score = p["attempts"].get(bid)
-            feedback = ({k: score[k] for k in ("score", "valid_output", "observations", "uncertainties") if k in score}
+            feedback = ({k: score[k] for k in ("score", "per_seed", "seeds", "outputs", "evidence", "report", "valid_output") if k in score}
                         if score is not None else None)
             if score and score.get("components"):
                 feedback["components"] = {k: score["components"][k] for k in ("path", "sha256")}

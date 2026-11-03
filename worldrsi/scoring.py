@@ -1,12 +1,12 @@
-"""Independent evidence sampling for official component observations."""
+"""Script-only numerical scoring and Reflector evidence sampling."""
 from pathlib import Path
-from .common import digest, immutable_json, read_json, sha256
+from .common import digest, immutable_json, lock, read_json, sha256
 from .media import normalize, verify_locked
 from .records import metered
 
-@metered("scorer")
+@metered("reflector")
 def evidence(task_dir, source, frames, reason, crop=None):
-    """Scorer chooses arbitrary frame indices/crops; sampling itself is not a score."""
+    """Reflector chooses arbitrary frame indices/crops; sampling itself is not a score."""
     directory = Path(task_dir)
     record = verify_locked(directory)
     if record["status"] != "valid":
@@ -49,3 +49,42 @@ def evidence(task_dir, source, frames, reason, crop=None):
     return immutable_json(dest / "selection.json", {**selection, "images": images})
 
 
+
+def batch(directory, definition):
+    """One script invocation scores all outputs/seeds; retries resume saved scores."""
+    from . import benchmark, evaluation
+    definition = Path(definition).resolve()
+    payload = read_json(definition)
+    session = read_json(definition.parent / "session.json")
+    spec = read_json(definition.parent / "dispatch.json")
+    plan = evaluation.load(directory)
+    if (payload.get("evaluation_dir") != plan["directory"] or payload.get("evaluation_key") != plan["key"]
+            or spec["role"] != "scorer" or session["dispatch_sha256"] != sha256(definition.parent / "dispatch.json")
+            or session.get("scope") != payload.get("scorer_scope")):
+        raise ValueError("Batch scoring requires the registered task/evaluation Scorer packet")
+    registry = read_json(Path(session["scope"]) / "sessions/scorer.json")
+    if registry["session_id"] != session["session_id"]:
+        raise ValueError("Use the active Scorer session for this task or evaluation")
+    with lock(Path(session["scope"]) / "sessions/.scoring.lock"):
+        tasks = [Path(d) for rows in plan["outputs"].values() for d in rows.values()]
+        # Preflight the entire batch before starting any numerical work.
+        for task in tasks:
+            verify_locked(task)
+        reused = set()
+        if plan.get("reuse_test"):
+            test = evaluation.load(plan["reuse_test"]["path"])
+            reused = {Path(d) for rows in test["outputs"].values() for d in rows.values()}
+            for task in set(tasks) & reused:
+                evaluation.score(task)  # Missing test scores stay pending; never remeasure them here.
+        for task in tasks:
+            if (task / "scoring/score.json").exists():
+                evaluation.score(task)
+                continue
+            private = benchmark.scorer_payload(task, plan["index_dir"])
+            benchmark.measure_view(task, private)
+            components = task / "scoring/physics_iq/components.json"
+            judgment = {"session_id": session["session_id"], "components": str(components)}
+            benchmark.finalize_scorer(task, private, judgment)
+        return immutable_json(Path(plan["directory"]) / "scoring/batch.json",
+                              {"evaluation_key": plan["key"], "scores": {
+                                  str(t / "scoring/score.json"): sha256(t / "scoring/score.json") for t in tasks}})

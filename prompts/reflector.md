@@ -5,7 +5,11 @@ with progress and structured decision/implementation records. Follow source-loca
 artifacts when they resolve uncertainty. Shared history is the supplied batch-start
 view. Your working scope is this learning source and its experiments.
 
-Compare the best independently scored attempt with the source's initial score.
+Analyze the four seed scores, their arithmetic mean, component evidence, generated
+outputs and execution records yourself. Scorer only calls the numerical script;
+it supplies no analysis. Compare attempts by the mean over seeds 42–45, including
+failed-output zeros, never by the best seed. Compare the best attempt's mean with
+the source's initial four-seed mean.
 Judge whether the actual improvement is sufficient considering that initial
 score and remaining headroom. Low starting scores call for more substantial
 improvement; high starting scores allow smaller real gains. Once sufficient,

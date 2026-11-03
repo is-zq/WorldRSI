@@ -20,13 +20,29 @@ def evidence(source, paths):
     return result
 
 
+def attempt_score(directory):
+    """Learning decisions use the fixed four-seed mean, never a best seed."""
+    directory = Path(directory)
+    report = evaluation.report(directory)
+    if report["phase"] != "learning" or len(report["task_ids"]) != 1 or report["seeds"] != evaluation.SEEDS:
+        raise ValueError("Learning feedback requires one input and all four seeds")
+    tid = report["task_ids"][0]
+    per_seed = {str(seed): report["scores"][str(seed)][tid] for seed in evaluation.SEEDS}
+    if abs(sum(per_seed.values()) / 4 - report["mean"]) > evaluation.EPSILON:
+        raise ValueError("Learning score must equal the mean of all four seeds")
+    return {"score": report["mean"], "per_seed": per_seed, "seeds": report["seeds"],
+            "outputs": {seed: rows[tid] for seed, rows in report["outputs"].items()},
+            "evidence": report["evidence"],
+            "report": {"path": str(directory / "report.json"), "sha256": sha256(directory / "report.json")}}
+
+
 def progress(source_dir):
     source_dir = Path(source_dir)
     source = read_json(source_dir / "source.json")
     results = {}
     for name, path in [("initial", source_dir / "initial"), *[(b["id"], Path(b["directory"])) for b in source["branches"]]]:
-        if (path / "scoring/score.json").exists():
-            results[name] = evaluation.score(path)
+        if (path / "evaluation.json").exists() and (path / "report.json").exists():
+            results[name] = attempt_score(path)
     best = max(results, key=lambda k: results[k]["score"]) if results else None
     return {"initial_score": results.get("initial", {}).get("score"), "best_attempt": best,
             "best_score": results[best]["score"] if best else None, "attempts": results}
@@ -48,8 +64,9 @@ def branch(source_dir, request):
         d = source_dir / "branches" / bid
         immutable_json(d / "hypothesis.json", request)
         public, _ = data.task(source["index_dir"], "learning", source["task_id"])
-        evaluation.create_task(d, public, source["snapshot_path"], source_dir=source_dir,
-                               intervention={"instruction": request["executor_instruction"], "id": bid})
+        evaluation.prepare(d, source["index_dir"], source["snapshot_path"], "learning",
+                           task_ids=[public["task_id"]], source_dir=source_dir,
+                           intervention={"instruction": request["executor_instruction"], "id": bid})
         entry = {"id": bid, "directory": str(d)}
         if entry not in source["branches"]:
             source["branches"].append(entry)
@@ -108,7 +125,9 @@ def verify_experience(source_dir):
         raise ValueError("Frozen experience must retain its source and snapshot binding")
     paths = {"initial": source_dir / "initial", **{b["id"]: Path(b["directory"]) for b in source["branches"]}}
     for name, expected in experience["scores"].items():
-        if digest(read_json(paths[name] / "scoring/score.json")) != expected:
+        current = (attempt_score(paths[name]) if (paths[name] / "evaluation.json").exists()
+                   else read_json(paths[name] / "scoring/score.json"))
+        if digest(current) != expected:
             raise ValueError("Learning evidence must retain its frozen score binding")
     for ref in experience["evidence"]:
         if sha256(ref["path"]) != ref["sha256"]:
