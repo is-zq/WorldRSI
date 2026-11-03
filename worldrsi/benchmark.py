@@ -349,7 +349,11 @@ def finalize_scorer(task_dir, private, judgment, scorer_config=None, *,
     private = _private_record(private)
     context, locked = _view_context(task_dir, private)
     config = _scorer_config(scorer_config, root=root, context=context)
-    session = identifier(judgment["session_id"])
+    session = judgment["session_id"]
+    # Collaboration session identities may be canonical paths, not file names.
+    # Preserve the exact identity accepted by sessions.register.
+    if not isinstance(session, str) or not session.strip() or any(ord(c) < 32 for c in session):
+        raise ValueError("A real, nonempty subagent session identifier is required")
     if judgment.get("scorer_config", config) != config:
         raise ValueError("Actual benchmark Scorer configuration differs from the frozen role")
     component_path = task_dir / "scoring/physics_iq/components.json"
