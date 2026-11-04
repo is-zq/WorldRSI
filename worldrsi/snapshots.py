@@ -58,6 +58,45 @@ def freeze(policy=None, root=ROOT, *, templates=None, manuals=None):
         return record
 
 
+def derive(base, *, policy=None, templates=None, manuals=None, root=ROOT):
+    """Replace Agent components while retaining the base's frozen implementation."""
+    base = Path(base)
+    original = verify(base)
+    sources = {"policy": Path(policy) if policy is not None else base / "policy",
+               "manuals": Path(manuals) if manuals is not None else base / "manuals",
+               "source/templates": Path(templates) if templates is not None else base / "source/templates"}
+    if any(not source.is_dir() for source in sources.values()):
+        raise ValueError("Agent components must be existing directories")
+    source = {k: v for k, v in original["binding"]["source"].items() if not k.startswith("templates/")}
+    source.update({"templates/" + k: v for k, v in tree(sources["source/templates"]).items()})
+    binding = {**original["binding"], "source": source,
+               "policy": tree(sources["policy"]), "manuals": tree(sources["manuals"])}
+    snapshot_id = digest(binding)
+    root = Path(root)
+    target = root / "snapshots" / snapshot_id
+    with lock(root / ".shared-state.lock"):
+        if target.exists():
+            return verify(target)
+        record = {"snapshot_id": snapshot_id, "binding": binding, "path": str(target.resolve())}
+        target.parent.mkdir(parents=True, exist_ok=True)
+        stage = Path(tempfile.mkdtemp(prefix=f".{snapshot_id}-", dir=target.parent))
+        try:
+            shutil.copytree(base / "source", stage / "source")
+            shutil.copytree(base / "h3-prompt-writing", stage / "h3-prompt-writing")
+            for relative, origin in sources.items():
+                destination = stage / relative
+                if destination.exists():
+                    shutil.rmtree(destination)
+                shutil.copytree(origin, destination, ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "*.lock"))
+            write_json(stage / "snapshot.json", record)
+            verify(stage)
+            os.rename(stage, target)
+        finally:
+            if stage.exists():
+                shutil.rmtree(stage)
+        return record
+
+
 def verify(path):
     path = Path(path)
     record = read_json(path / "snapshot.json")

@@ -223,7 +223,7 @@ def candidate(run_dir, policy=None, templates=None):
         if not current["manuals"] or tree(current["manuals"]["output_manuals"]) != current["manuals"]["hashes"]:
             raise ValueError("Candidate requires the staged, frozen manuals")
         base = Path(current["snapshot_path"])
-        snap = snapshots.freeze(policy or base / "policy", templates=templates or base / "source/templates", manuals=current["manuals"]["output_manuals"])
+        snap = snapshots.derive(base, policy=policy, templates=templates, manuals=current["manuals"]["output_manuals"])
         original = snapshots.verify(base)["binding"]
         fixed = lambda b: {k: v for k, v in b["source"].items() if not k.startswith("templates/")}
         if snap["binding"]["runtime"] != original["runtime"] or fixed(snap["binding"]) != fixed(original):
