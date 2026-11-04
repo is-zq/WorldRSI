@@ -87,8 +87,12 @@ Each attempt is an evaluation plan with one input and seeds 42–45. Seed 42 liv
 at the attempt root; replicas use its frozen package. After all four outputs are
 locked, dispatch the source task's Scorer and use `score batch` as below. Record
 usage and run `eval finalize LEARNING_ATTEMPT_DIR` before dispatching Reflector.
-Reflector receives the four scores, their mean and source-local evidence and
-performs the analysis itself. An unfinished seed keeps the attempt pending.
+Reflector receives the public task (first frame and prompt), four scores, their
+mean, frozen history, source-local execution evidence and `ground_truth`.
+The `ground_truth` field contains the current learning view's take-1 GT (`gt_v1`)
+and corresponding scoring mask (`mask_v1`), each with path, media metadata and
+verified index hash. Reflector performs the analysis itself. An unfinished seed
+keeps the attempt pending.
 To resume an open legacy single-seed attempt, first run
 `wrsi eval prepare-learning ATTEMPT_DIR` (or supply `--index` for a standalone
 task). It preserves seed 42 and its submissions/scores, adding the other three
@@ -181,7 +185,13 @@ another snapshot. Register an initial test extension with
 `wrsi run register-initial-test RUN_DIR --report FULL_EVALUATION_DIR`.
 
 When all eleven sources and transfer outcomes are finalized, dispatch Manual
-Manager, then publish its complete manuals and dispatch Editor:
+Manager, then publish its complete manuals and dispatch Editor. Editor receives
+all current and historical source summaries, including unsuccessful outcomes.
+It writes the complete synthesized policy in `policy/skills/worldrsi-decision/SKILL.md`
+under its output directory and reusable implementations under templates. Policy
+publication accepts only this single decision skill; raw source experience
+attachments are not part of the Executor policy. Executor packets expose its
+frozen path as `decision_experience`:
 
 ```bash
 ./wrsi run manual-inputs RUN_DIR

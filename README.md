@@ -1,8 +1,11 @@
 # WorldRSI
 
 WorldRSI learns physics-video decisions from Physics-IQ-Verified. Each epoch learns
-33 scenes in three rounds. A scene's experience bundle is tested on its other two
-views before Editor integrates it. Complete-Agent validation selects policy,
+33 scenes in three rounds. Reflector analyzes each learning view using its public
+task, execution evidence, take-1 GT and corresponding scoring mask. Experience
+bundles are tested on the other two views. Editor synthesizes all summaries,
+including unsuccessful outcomes, into one decision skill for subsequent Executors.
+Complete-Agent validation selects policy,
 templates and manuals together.
 
 All stages use the official dual-take Benchmark score and take-1 images from

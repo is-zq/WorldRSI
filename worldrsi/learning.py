@@ -95,7 +95,8 @@ def close(source_dir, request):
                 raise ValueError("Bundle requires public trigger, instruction, scope, and implementation checks")
             refs = evidence(source_dir, request.get("evidence"))
         else:
-            bundle, refs = None, []
+            bundle = None
+            refs = evidence(source_dir, request["evidence"]) if request.get("evidence") else []
         if status == "saturated" and p["initial_score"] < 1 - evaluation.EPSILON:
             raise ValueError("Saturation requires the initial official score ceiling")
         if status == "blocked" and not request.get("recovery_condition"):
@@ -125,8 +126,7 @@ def verify_experience(source_dir):
         raise ValueError("Frozen experience must retain its source and snapshot binding")
     paths = {"initial": source_dir / "initial", **{b["id"]: Path(b["directory"]) for b in source["branches"]}}
     for name, expected in experience["scores"].items():
-        current = (attempt_score(paths[name]) if (paths[name] / "evaluation.json").exists()
-                   else read_json(paths[name] / "scoring/score.json"))
+        current = attempt_score(paths[name])
         if digest(current) != expected:
             raise ValueError("Learning evidence must retain its frozen score binding")
     for ref in experience["evidence"]:
@@ -183,15 +183,25 @@ def finalize_transfer(source_dir):
                                             "sha256": sha256(Path(plans[arm]["directory"]) / "report.json")} for arm in plans}})
 
 
-def accepted_bundle(source_dir):
+def reviewed_experience(source_dir):
     source_dir = Path(source_dir)
     decision = read_json(source_dir / "transfer/decision.json")
-    experience = read_json(source_dir / "experience.json")
+    _, experience = verify_experience(source_dir)
     if decision["experience_sha256"] != digest(experience):
         raise ValueError("Transfer decision must bind the source experience")
-    if not decision["passed"]:
-        return None
-    verify_experience(source_dir)
+    if experience["status"] == "sufficient_gain":
+        _verify_transfer(source_dir, experience, decision)
+    elif decision["status"] != "source_closed" or decision["passed"] is not False:
+        raise ValueError("A source without sufficient gain must have a source_closed receipt")
+    return {k: experience[k] for k in ("task_id", "scene_id", "status", "best_attempt", "initial_score",
+            "best_score", "gain", "reason", "recovery_condition", "observations", "bundle", "evidence", "scores")} | {
+            "experience_sha256": digest(experience),
+            "transfer": {"passed": decision["passed"], "status": decision["status"], "receipt_sha256": digest(decision)}}
+
+
+def _verify_transfer(source_dir, experience, decision):
+    if decision["status"] != "evaluated":
+        raise ValueError("Sufficient-gain experience requires a completed transfer")
     for ref in decision["reports"].values():
         if sha256(ref["path"]) != ref["sha256"]:
             raise ValueError("Transfer receipt must retain its scored report binding")
@@ -199,11 +209,30 @@ def accepted_bundle(source_dir):
     for implementation in decision["implementation"].values():
         for ref in [implementation["proof"], *implementation["evidence"]]:
             if sha256(ref["path"]) != ref["sha256"]:
-                raise ValueError("Passed experience must retain its checked target implementation")
+                raise ValueError("Transfer experience must retain its checked target implementation")
     reports = [evaluation.report(decision["reports"][arm]["path"]) for arm in ("baseline", "candidate")]
+    source = read_json(source_dir / "source.json")
+    expected_ids = {r["task_id"] for r in data.tasks(source["index_dir"], "transfer")
+                    if r["scene_id"] == source["scene_id"]}
+    expected_intervention = {"bundle": experience["bundle"], "experience_sha256": digest(experience)}
+    if (reports[0]["intervention"] is not None or reports[1]["intervention"] != expected_intervention
+            or any(r["phase"] != "transfer" or set(r["task_ids"]) != expected_ids
+                   or r["snapshot_id"] != source["snapshot_id"] for r in reports)
+            or set(decision["implementation"]) != expected_ids):
+        raise ValueError("Transfer receipt must bind this source's experiment and views")
+    for proof in decision["implementation"].values():
+        record = read_json(proof["proof"]["path"])
+        if record.get("experience_sha256") != digest(experience) or record.get("applied") is not True:
+            raise ValueError("Transfer implementation must confirm the frozen experience")
     gains, passed = transfer_gains(*reports)
-    if not passed or gains != decision["gains"]:
-        raise ValueError("Passing receipt requires improvement on each reserved view")
+    if passed != decision["passed"] or gains != decision["gains"]:
+        raise ValueError("Transfer receipt must match improvement on each reserved view")
+
+
+def accepted_bundle(source_dir):
+    experience = reviewed_experience(source_dir)
+    if not experience["transfer"]["passed"]:
+        return None
     return {"scene_id": experience["scene_id"], "bundle": experience["bundle"],
             "learning": {k: experience[k] for k in ("initial_score", "best_score", "gain", "reason", "evidence")},
-            "transfer": {"passed": True, "receipt_sha256": digest(decision)}}
+            "transfer": {k: experience["transfer"][k] for k in ("passed", "receipt_sha256")}}

@@ -7,7 +7,10 @@ Solid Mechanics / Fluid Dynamics / Optics / Thermodynamics / Magnetism counts ar
 19/7/4/2/1 and 19/8/4/1/1. Every scene has left, center and right views. Public
 inputs consist of the factual description and take-1 PNG from
 `/data/physics-iq-verified-benchmark/physics-IQ-benchmark-verified/first-frames`.
-Both real takes and masks are private scoring inputs. Every output covers five
+Scorer uses both real takes and masks. Reflector receives the public first frame
+and prompt, learning evidence, frozen history, and its learning view's take-1 GT
+and corresponding scoring mask. Executor receives the public task and its
+decision policy or experimental intervention. Every output covers five
 seconds, 120 frames at 24 fps, 832×480.
 
 Sort learning scenes, shuffle with seed 20261020, then assign left, center, right
@@ -55,8 +58,12 @@ the four paired official score differences must exceed the floating tolerance
 1e-12. Candidate implementation evidence binds the experience hash. Both views
 must pass. A passed group establishes the tested combination's effect.
 
-The main session retains transfer details and failed bundles. Shared history and
-Editor receive passed bundles, learning-view evidence and the passing receipt.
+The main session retains transfer details. Shared history receives passed bundles,
+learning-view evidence and the passing receipt. Editor receives every closed
+source's summary from all rounds, including failed transfers, stalled, blocked
+and saturated sources and rejected candidates, with verified learning evidence
+and transfer outcomes. A failed transfer is evidence about scope and uncertainty;
+it does not prevent Editor from learning from the source.
 Reflector's history is frozen at batch start. Executor uses a fresh task session.
 Each learning source task has one Scorer, continued for its initial and subsequent
 attempts. Each validation, test and transfer-arm evaluation has its own Scorer.
@@ -73,8 +80,15 @@ Reflector receives per-seed scores and their mean, not Scorer-authored analysis.
 ## Complete-Agent validation
 
 After all eleven source closures and transfer outcomes, Manual Manager combines
-checked tool operations into a complete manual tree. Editor integrates passed
-bundles into a policy/template candidate. Validation evaluates all three components
+checked tool operations into a complete manual tree. Editor synthesizes all
+Reflector summaries into one self-contained decision experience at
+`policy/skills/worldrsi-decision/SKILL.md`, with reusable implementation templates.
+Preserve narrow but useful lessons as conditional rules, including dependencies,
+checks, counterexamples and uncertainty. Do not discard a lesson merely because
+it appears scene-specific or copy original source bundles into the policy or
+templates. Ordinary Executors read this synthesis as their only learned decision
+experience. Learning branches and transfer candidates apply their supplied
+experimental instructions. Validation evaluates all three components
 together on 33 validation scenes × three views × four seeds.
 
 Compare official mean scores using tolerance 1e-12. A higher mean promotes the

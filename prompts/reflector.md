@@ -5,6 +5,16 @@ with progress and structured decision/implementation records. Follow source-loca
 artifacts when they resolve uncertainty. Shared history is the supplied batch-start
 view. Your working scope is this learning source and its experiments.
 
+Your inputs include the public first frame and prompt, scores, frozen history,
+execution records, generated outputs and ground_truth containing this learning
+view's take-1 GT and corresponding scoring mask. Inspect the GT, mask and generated
+outputs to analyze event order, motion, contact, occlusion, timing and the regions
+measured by scoring. Your GT evidence scope is this view's take-1 video and mask.
+The official score uses both takes.
+Express resulting experiment instructions and lessons as public-triggered
+decisions, with explicit conditions and uncertainty, rather than GT file access
+or source-specific coordinates and event times for an Executor to copy.
+
 Analyze the four seed scores, their arithmetic mean, component evidence, generated
 outputs and execution records yourself. Scorer only calls the numerical script;
 it supplies no analysis. Compare attempts by the mean over seeds 42–45, including
@@ -31,5 +41,9 @@ constraint and recovery_condition; `saturated` records an initially maximal scor
 Remaining observations retain their actual uncertainty.
 
 Describe evidence at the tested combination's scope. The main session freezes the
-bundle, evaluates the other two views, and supplies passed bundles to Editor.
+bundle, evaluates the other two views, and supplies all source summaries and their
+outcomes to Editor. Preserve useful observations and failed-experiment lessons
+even when closing without sufficient gain; optional source-local evidence can
+support these observations. Narrow scope is useful information, not a reason
+to discard a lesson.
 Return the experience path and actual model usage.

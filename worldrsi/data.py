@@ -86,3 +86,19 @@ def task(directory, phase, task_id):
     public = next(r for r in m["binding"]["public"][phase] if r["task_id"] == task_id)
     private = next(r for r in m["binding"]["private"][phase] if r["task_id"] == task_id)
     return {**public, "data_revision": m["revision"]}, private
+
+
+def reflection_inputs(directory, task_id):
+    """Expose only the learning view's take-1 reference and scoring mask."""
+    public, private = task(directory, "learning", task_id)
+    if private["view"] != public["view"]:
+        raise ValueError("Reflection references must match the learning view")
+    references = {}
+    for field in ("gt_v1", "mask_v1"):
+        path = Path(private[field])
+        expected = private["sha256"][field]
+        if sha256(path) != expected:
+            raise ValueError("Reflection reference must match its frozen hash")
+        references[field] = {"path": str(path), "sha256": expected,
+                             "media": private["media"][field]}
+    return public, {"task_id": task_id, "view": public["view"], "take": 1, **references}

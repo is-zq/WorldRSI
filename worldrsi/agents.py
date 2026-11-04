@@ -2,7 +2,7 @@
 from pathlib import Path
 
 from .common import ROOT, digest, immutable_json, read_json, sha256, write_text
-from . import learning, sessions, snapshots, workflow
+from . import data, learning, sessions, snapshots, workflow
 
 
 def packet(role, destination, *, task_dir=None, source_dir=None, run_dir=None, index_dir=None,
@@ -21,6 +21,10 @@ def packet(role, destination, *, task_dir=None, source_dir=None, run_dir=None, i
             raise ValueError("Executor modeling uses the primary seed task")
         payload = {k: c[k] for k in ("public", "phase", "snapshot_path", "policy_snapshot", "manual_snapshot", "template_snapshot", "intervention")}
         payload["task_dir"] = str(Path(task_dir).resolve())
+        policy = Path(c["snapshot_path"]) / "policy"
+        if Path(c["policy_snapshot"]).resolve() != policy.resolve():
+            raise ValueError("Executor policy must belong to its frozen snapshot")
+        payload["decision_experience"] = snapshots.decision_experience(policy)
         payload["tool_documentation"] = str(Path(c["snapshot_path"]) / "source/docs/tools.md")
     elif role == "scorer":
         from . import evaluation
@@ -40,6 +44,10 @@ def packet(role, destination, *, task_dir=None, source_dir=None, run_dir=None, i
         if (scope / "experience.json").exists():
             raise ValueError("Reflector deliveries belong to an open learning source")
         source = read_json(scope / "source.json")
+        public, ground_truth = data.reflection_inputs(source["index_dir"], source["task_id"])
+        if (public["scene_id"] != source["scene_id"]
+                or read_json(scope / "initial/task.json")["public"] != public):
+            raise ValueError("Reflector inputs must match the source's initial public task")
         prior = read_json(source["history"]["path"])
         if digest(prior) != source["history"]["sha256"]:
             raise ValueError("Reflector history must match its batch-start binding")
@@ -56,7 +64,7 @@ def packet(role, destination, *, task_dir=None, source_dir=None, run_dir=None, i
                 {"before": read_json(f), "after": read_json(f.with_name("after.json")) if f.with_name("after.json").exists() else None}
                 for f in sorted((d / "trace").glob("*/before.json"))], "task_dir": str(d)}
         payload = {"source_dir": str(scope), "progress": {k: v for k, v in p.items() if k != "attempts"},
-                   "attempts": summaries, "history": prior,
+                   "attempts": summaries, "history": prior, "public": public, "ground_truth": ground_truth,
                    "cost_directory": str(scope / "reflection")}
     elif role in ("editor", "manual_manager"):
         scope = Path(run_dir).resolve()
@@ -71,8 +79,9 @@ def packet(role, destination, *, task_dir=None, source_dir=None, run_dir=None, i
             payload = {"round": current["round"], "policy": str(Path(current["snapshot_path"]) / "policy"),
                        "templates": str(Path(current["snapshot_path"]) / "source/templates"),
                        "manuals": current["manuals"]["output_manuals"],
-                       "experiences": [b for s in current["sources"] if (b := learning.accepted_bundle(s["directory"]))],
-                       "history": workflow.history(scope), "output_directory": str(Path(current["directory"]) / "editor")}
+                       "experiences": workflow.editor_experiences(scope),
+                       "history": {"validation": workflow.history(scope)["validation"]},
+                       "output_directory": str(Path(current["directory"]) / "editor")}
         payload["cost_directory"] = str(Path(current["directory"]) / role)
     else:
         raise ValueError("Role must be one of the configured experiment roles")

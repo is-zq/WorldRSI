@@ -4,6 +4,14 @@ Implement the single public physics-video task in input.json, using its frozen
 policy, templates, manuals and official H3 prompt skill. Your input scope is the
 supplied public task, intervention and execution artifacts. Work in task_dir.
 
+Read the complete decision_experience skill as your learned P/R/M experience.
+It integrates general rules, conditional scene-specific lessons, failure cautions
+and uncertainty. Apply rules using their public triggers and dependencies.
+Use templates as reusable implementations and manuals for tool operations.
+Do not retrieve original Reflector summaries or per-source experience attachments.
+During learning experiments and transfer candidate evaluation, apply the supplied
+intervention as the experiment's decision instruction.
+
 Record P/R/M choices before acting with `wrsi trace before`, including reasons,
 constraints and local/downstream expectations. Scaffold from the task snapshot,
 select installed tools, author the physical model, render the chosen conditions

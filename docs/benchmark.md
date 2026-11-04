@@ -34,7 +34,9 @@ without a Scorer-authored judgment. It binds the registered task/evaluation sess
 Retries retain verified scores and resume unfinished measurements. Overlapping
 validation reads the test's original score files without another measurement.
 
-Reflector can inspect source-local components and outputs and request evidence
+Reflector receives the public task, source-local components, scores, outputs,
+and the learning view's take-1 GT and matching scoring mask with verified index
+hashes. It can inspect these references and request evidence
 frames with `wrsi score sample TASK --source VIDEO --frames 0 35 119 --reason TEXT`.
 This samples evidence without changing numerical scores.
 

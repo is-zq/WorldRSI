@@ -20,7 +20,8 @@ Dispatch all eleven source Executors from the batch snapshot, then advance each
 source as evidence arrives. Reflector determines sufficient gain from the initial
 score and tested improvement, freezes its bundle, and completes its source session.
 The two reserved views then compare baseline and bundle using four paired seeds.
-Both view means must improve before Editor receives the bundle.
+Both view means must improve to establish successful transfer. Editor receives
+all summaries and their outcomes, including unsuccessful sources.
 
 After every source and gate finishes, dispatch Manual Manager, publish its manuals,
 then dispatch Editor and validate the complete candidate once. Use the deterministic
@@ -31,10 +32,16 @@ retaining the original snapshot and existing generations.
 Each learning source task has one Scorer across its attempts; each validation,
 test and transfer-arm evaluation has its own Scorer. Scorer uses gpt-6.1-sol/high
 and only invokes the batch script, returning numerical artifacts. Reflector
-analyzes learning scores and evidence itself. Learning batches cover one input ×
+receives the public first frame and prompt, learning evidence, frozen history,
+and the learning view's take-1 GT and its scoring mask, and performs the analysis.
+Learning batches cover one input ×
 four seeds; other batches cover all planned inputs and seeds. Overlapping
-validation reuses matching test scores as described in the operation guide. Editor
-and shared history use passed bundles and aggregate validation summaries. Transfer
-detail and complete-test reports belong to the main session. Resume immutable
+validation reuses matching test scores as described in the operation guide.
+Shared history uses passed bundles and aggregate validation summaries. Editor
+reads all current and historical source summaries, then writes one self-contained
+decision skill, retaining narrow conditional lessons and uncertainty. Ordinary
+Executors read that synthesis. Learning branches and transfer candidates apply
+their supplied experimental instructions. Transfer detail and complete-test
+reports belong to the main session. Resume immutable
 packets, packages and submissions from their saved identities. Report concrete
 pending artifacts and account for actual role and tool costs.

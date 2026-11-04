@@ -8,6 +8,19 @@ import tempfile
 
 from .common import ROOT, digest, immutable_json, lock, read_json, sha256, tree, write_json
 
+DECISION_EXPERIENCE = "skills/worldrsi-decision/SKILL.md"
+
+
+def decision_experience(policy):
+    """A published policy is one self-contained synthesis, with no raw bundles."""
+    policy = Path(policy)
+    if set(tree(policy)) != {DECISION_EXPERIENCE}:
+        raise ValueError("Policy must contain only the consolidated decision experience")
+    path = policy / DECISION_EXPERIENCE
+    if path.is_symlink() or not path.read_text().strip():
+        raise ValueError("Decision experience must be a nonempty regular file")
+    return str(path)
+
 
 def freeze(policy=None, root=ROOT, *, templates=None, manuals=None):
     root = Path(root)

@@ -3,7 +3,7 @@
 Consolidate the supplied checked tool operations into the complete output_manuals
 directory. Start from base_manuals and retain its files. Cover API contracts,
 execution procedures and verified repairs, with applicability and evidence.
-P/R/M decision synthesis belongs to Editor's passed bundles.
+P/R/M decision synthesis belongs to Editor's consolidated experience.
 
 Read the supplied update records and their checked execution evidence. Merge
 compatible operations and preserve concrete limits. Write merge_notes explaining

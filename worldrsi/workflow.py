@@ -168,9 +168,17 @@ def begin_round(run_dir):
 def completed_sources(current):
     if len(current["sources"]) != 11:
         raise ValueError("Consolidation requires all eleven learning sources")
-    for s in current["sources"]:
-        read_json(Path(s["directory"]) / "experience.json")
-        learning.accepted_bundle(s["directory"])
+    return [learning.reviewed_experience(s["directory"]) for s in current["sources"]]
+
+
+def editor_experiences(run_dir):
+    """All closed sources, including unsuccessful rounds, remain synthesis inputs."""
+    state = read_json(Path(run_dir) / "run.json")
+    result = []
+    for current in state["rounds"]:
+        result.extend({"round": current["round"], **experience}
+                      for experience in completed_sources(current))
+    return result
 
 
 def manual_inputs(run_dir):
@@ -223,6 +231,7 @@ def candidate(run_dir, policy=None, templates=None):
         if not current["manuals"] or tree(current["manuals"]["output_manuals"]) != current["manuals"]["hashes"]:
             raise ValueError("Candidate requires the staged, frozen manuals")
         base = Path(current["snapshot_path"])
+        snapshots.decision_experience(policy if policy is not None else base / "policy")
         snap = snapshots.derive(base, policy=policy, templates=templates, manuals=current["manuals"]["output_manuals"])
         original = snapshots.verify(base)["binding"]
         fixed = lambda b: {k: v for k, v in b["source"].items() if not k.startswith("templates/")}
