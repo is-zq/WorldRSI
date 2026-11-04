@@ -13,7 +13,12 @@ def evidence(source, paths):
         raise ValueError("Experience requires source-local implementation evidence")
     result = []
     for name in paths:
-        p = Path(name).resolve()
+        p = Path(name)
+        if not p.is_absolute():
+            local = source / p
+            legacy = p.resolve()
+            p = legacy if not local.exists() and legacy.is_relative_to(source) else local
+        p = p.resolve()
         if not p.is_relative_to(source):
             raise ValueError("Evidence must belong to its learning source")
         result.append({"path": str(p), "sha256": sha256(p)})

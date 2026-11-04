@@ -192,7 +192,7 @@ class CrossViewTests(unittest.TestCase):
         for tid,d in b["outputs"]["42"].items():
             p=Path(d); (p/"checked.txt").write_text("Target-view implementation checked")
             write_json(p/"implementation.json",{"experience_sha256":digest(closed),"applied":True,"assessment":"Verified collider change",
-                       "evidence":[str(p/"checked.txt")]})
+                       "evidence":["checked.txt"]})
         result = learning.finalize_transfer(source)
         self.assertTrue(result["passed"])
         public = learning.accepted_bundle(source)
