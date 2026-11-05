@@ -19,6 +19,7 @@ runs/
 snapshots/
 reports/
 logs/
+paper/
 /prepared
 *.lock
 *.tmp
