@@ -19,13 +19,13 @@ score all planned inputs and seeds in one invocation, and overlapping validation
 reuses matching test scores. Reflector receives its public first frame, prompt,
 detailed learning evidence, and that view's take-1 GT and corresponding scoring
 mask, and judges improvement relative to the initial score. Editor synthesizes
-all source summaries and transfer outcomes into one self-contained decision skill,
+all source summaries into one self-contained decision skill,
 retaining conditional lessons and uncertainty. Ordinary Executors read that
-synthesis; learning and transfer retain experimental instructions. Manual
+synthesis; learning branches retain experimental instructions. Manual
 Manager consolidates checked learning-stage tool operations. Whole-Agent validation
 activates policy, templates and manuals together.
 
-Learning, transfer and validation use the regular H3 input queue; complete tests
+Learning and validation use the regular H3 input queue; complete tests
 use `worldrsi-test-inputs`. Keep long-running commands in named tmux sessions with
 logs under the project. Preserve registered submissions and frozen artifacts on
 recovery.

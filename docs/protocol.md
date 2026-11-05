@@ -1,4 +1,4 @@
-# Physics-IQ cross-view learning
+# Physics-IQ learning
 
 ## Data and schedule
 
@@ -18,7 +18,7 @@ cyclically: eleven scenes per learning view. This assignment stays fixed across
 epochs. Epoch e shuffles sorted scene names with seed 20261020+e and partitions
 them into three batches of eleven. All batch sources use one Agent/history snapshot.
 
-Learning, transfer, validation and tests all use seeds 42–45. Each
+Learning, validation and tests all use seeds 42–45. Each
 input and experimental arm is modeled once; its frozen conditions serve all four
 generation seeds. Initial validation establishes the reference on 99 inputs.
 Initial evaluation and the first learning batch run concurrently; candidate
@@ -27,7 +27,7 @@ validation and promotion require the initial reference.
 Evaluation mode is recorded per run. `full` uses all three views; `quick` uses
 the first declared view (`perspective-left`) for validation and tests. Both use
 seeds 42–45. Quick validation has 33 inputs and quick testing has 66 inputs.
-Learning retains its fixed view assignment and the two reserved transfer views.
+Learning uses only the single view assigned to each scene, in either mode.
 
 Run up to four epochs (twelve rounds). After at least one epoch, five consecutive
 rejections end learning. Test the current Agent at every epoch boundary and once
@@ -52,34 +52,26 @@ one bundle of public triggers, decision instructions, scope and checks. Observat
 retain remaining uncertainty. Stalled, blocked and initially saturated sources
 record their respective reasons and complete with an empty bundle.
 
-Each frozen bundle receives one transfer evaluation. Fresh Executors apply B and
-B+E independently to the source's two reserved views. For each view, the mean of
-the four paired official score differences must exceed the floating tolerance
-1e-12. Candidate implementation evidence binds the experience hash. Both views
-must pass. A passed group establishes the tested combination's effect.
-
-The main session retains transfer details. Shared history receives passed bundles,
-learning-view evidence and the passing receipt. Editor receives every closed
-source's summary from all rounds, including failed transfers, stalled, blocked
-and saturated sources and rejected candidates, with verified learning evidence
-and transfer outcomes. A failed transfer is evidence about scope and uncertainty;
-it does not prevent Editor from learning from the source.
+Shared history receives all `sufficient_gain` bundles and their verified learning
+evidence from completed rounds, including rounds whose candidate was rejected.
+Editor receives every closed source's summary from all rounds, including stalled,
+blocked and saturated sources and rejected candidates, with verified learning evidence.
 Reflector's history is frozen at batch start. Executor uses a fresh task session.
 Each learning source task has one Scorer, continued for its initial and subsequent
-attempts. Each validation, test and transfer-arm evaluation has its own Scorer.
+attempts. Each validation and test evaluation has its own Scorer.
 Retries stay within that scope; Scorer is not shared across the run. Scorer uses
 `gpt-6.1-sol` with `high` reasoning effort. Reflector continues within an open
 source; Editor and Manual Manager continue within a run.
 
 Each learning attempt invokes the scoring script once for its four seeds.
-Transfer, validation and test evaluations invoke it once for all planned inputs
+Validation and test evaluations invoke it once for all planned inputs
 and seeds. The script retains per-output components, scores and evidence;
 infrastructure failures resume the batch and skip verified completed scores.
 Reflector receives per-seed scores and their mean, not Scorer-authored analysis.
 
 ## Complete-Agent validation
 
-After all eleven source closures and transfer outcomes, Manual Manager combines
+After all eleven source closures, Manual Manager combines
 checked tool operations into a complete manual tree. Editor synthesizes all
 Reflector summaries into one self-contained decision experience at
 `policy/skills/worldrsi-decision/SKILL.md`, with reusable implementation templates.
@@ -87,7 +79,7 @@ Preserve narrow but useful lessons as conditional rules, including dependencies,
 checks, counterexamples and uncertainty. Do not discard a lesson merely because
 it appears scene-specific or copy original source bundles into the policy or
 templates. Ordinary Executors read this synthesis as their only learned decision
-experience. Learning branches and transfer candidates apply their supplied
+experience. Learning branches apply their supplied
 experimental instructions. Validation evaluates all three components
 together on 33 validation scenes × three views × four seeds.
 
@@ -122,5 +114,5 @@ Evaluation identities bind phase, data, complete snapshot, intervention, seeds,
 scoring protocol and test boundary. Recovery resumes the same submissions.
 Validation caches retain their measured execution costs. Missing or corrupt final
 outputs contribute zero within the fixed denominator; scoring infrastructure
-errors remain pending. Costs distinguish learning, transfer, validation, test and
+errors remain pending. Costs distinguish learning, validation, test and
 coordination work, with unknown counters recorded explicitly.

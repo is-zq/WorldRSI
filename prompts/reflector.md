@@ -41,8 +41,7 @@ constraint and recovery_condition; `saturated` records an initially maximal scor
 Remaining observations retain their actual uncertainty.
 
 Describe evidence at the tested combination's scope. The main session freezes the
-bundle, evaluates the other two views, and supplies all source summaries and their
-outcomes to Editor. Preserve useful observations and failed-experiment lessons
+bundle and supplies all source summaries to Editor. Preserve useful observations and failed-experiment lessons
 even when closing without sufficient gain; optional source-local evidence can
 support these observations. Narrow scope is useful information, not a reason
 to discard a lesson.

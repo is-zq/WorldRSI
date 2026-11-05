@@ -36,7 +36,7 @@ initial reference before candidate validation or promotion.
 
 Use `--mode quick` on `run init` for first-view validation and testing, or
 `--mode full` for all three views. Both modes use four seeds. The run records this
-choice; transfer always evaluates the learning scene's other two views.
+choice. Learning uses the single view already assigned to each scene.
 
 `wrsi run initial-test RUN_DIR` returns the initial test plan also used by initial
 validation. Their shared outputs are generated and scored only once. Record the completed
@@ -53,7 +53,7 @@ initial test with `wrsi run register-initial-test RUN_DIR`.
 
 Use a new packet directory for updated evidence. Read dispatch.json and call its
 specified collaboration method and arguments. Each learning source task has one
-Scorer across its attempts; each validation, test and transfer-arm evaluation has
+Scorer across its attempts; each validation and test evaluation has
 its own Scorer. Register its first dispatch before preparing follow-up packets.
 Scorer uses gpt-6.1-sol/high and only calls scripts. Persistent roles continue
 through followup_task within their scope after registration. For a replacement session, prepare a new packet
@@ -117,22 +117,15 @@ Checked tool updates use `wrsi manual record TASK --tool TOOL --record UPDATE.js
 The update includes id, scope, operation, claim_review, and evidence entries with
 step_id and named passed checks. Updates remain task-local until consolidation.
 
-## Transfer and common evaluation
+## Common evaluation
 
-```bash
-./wrsi transfer prepare SOURCE_DIR
-```
-
-This prepares transfer/baseline and transfer/candidate. For each arm and each of
-the two target inputs, dispatch a fresh Executor at seed 42. Candidate Executors
-also write implementation.json with experience_sha256, applied:true, assessment
-and evidence:[task-local paths]. Main submits the same frozen package for all seeds:
+Dispatch a fresh Executor for each planned input at seed 42. Main submits the
+same frozen package for all four seeds:
 
 ```bash
 ./wrsi eval submit EVALUATION_DIR --task-id TASK_ID
 ./wrsi eval collect EVALUATION_DIR
 ./wrsi eval finalize EVALUATION_DIR
-./wrsi transfer finalize SOURCE_DIR
 ```
 
 After every planned seed output is locked, deliver one evaluation packet to the
@@ -143,8 +136,8 @@ evaluation's Scorer. It invokes the scoring script once for all tasks and seeds:
 ```
 
 The batch writes each output's official components and score. A retry verifies
-and skips finished scores. The same commands serve transfer (one batch per arm),
-validation and tests. Each learning attempt uses the same batch command for its one input × four seeds.
+and skips finished scores. The same commands serve validation and tests. Each
+learning attempt uses the same batch command for its one input × four seeds.
 For overlapping validation and testing, score the test first. Prepare the
 validation projection, dispatch/register its own Scorer as above, and have it
 call the batch script to verify and reuse the test scores without remeasurement:
@@ -184,7 +177,7 @@ registered after its quick report, including after learning has advanced to
 another snapshot. Register an initial test extension with
 `wrsi run register-initial-test RUN_DIR --report FULL_EVALUATION_DIR`.
 
-When all eleven sources and transfer outcomes are finalized, dispatch Manual
+When all eleven sources are closed with verified learning evidence, dispatch Manual
 Manager, then publish its complete manuals and dispatch Editor. Editor receives
 all current and historical source summaries, including unsuccessful outcomes.
 It writes the complete synthesized policy in `policy/skills/worldrsi-decision/SKILL.md`
@@ -211,6 +204,12 @@ Execute the candidate's validation evaluation and finalize its report. Then:
 
 `run test` prepares the current pending boundary. Complete all 198 inputs using
 the common four-seed procedure and register the report before another round.
-`run history` returns passed decision bundles and aggregate validation outcomes.
-`run report` includes source/gate status, tests and costs by phase. Long commands
+`run history` returns `sufficient_gain` bundles from completed rounds and aggregate
+validation outcomes, including rejected candidates.
+`run report` includes source closure status, tests and costs by phase. Long commands
 run in named tmux sessions with logs under logs/; record the session and log path.
+
+Existing indexes, task bindings, submissions, snapshots and batch-start histories
+remain frozen when resuming a run. Newly assembled history uses the source's
+`sufficient_gain` status. Legacy transfer artifacts remain archived and their
+costs remain reportable; their receipts are not required for source completion.

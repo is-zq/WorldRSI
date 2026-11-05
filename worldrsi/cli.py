@@ -32,9 +32,6 @@ def parser():
     s.add_argument("operation", choices=["progress", "branch", "close"])
     s.add_argument("directory")
     s.add_argument("--record")
-    t = commands.add_parser("transfer")
-    t.add_argument("operation", choices=["prepare", "finalize"])
-    t.add_argument("source")
     e = commands.add_parser("eval")
     e.add_argument("operation", choices=["submit", "collect", "finalize", "extend", "status", "validation-from-test", "prepare-learning"])
     e.add_argument("directory")
@@ -113,8 +110,6 @@ def execute(a):
     if cmd == "source":
         if a.operation == "progress": return learning.progress(a.directory)
         return {"branch": learning.branch, "close": learning.close}[a.operation](a.directory, read_json(a.record))
-    if cmd == "transfer":
-        return {"prepare": learning.prepare_transfer, "finalize": learning.finalize_transfer}[a.operation](a.source)
     if cmd == "eval":
         if a.operation == "prepare-learning": return evaluation.prepare_learning(a.directory, a.index)
         if a.operation == "submit": return evaluation.submit(a.directory, a.task_id)

@@ -11,6 +11,11 @@ SEEDS = [42, 43, 44, 45]
 EPSILON = 1e-12
 
 
+def require_active_phase(phase):
+    if phase not in ("learning", "validation", "test"):
+        raise ValueError("Active phases are learning, validation and test")
+
+
 def views_for(mode):
     from .benchmark import VIEWS
     if mode not in ("quick", "full"):
@@ -31,6 +36,7 @@ def generation_seed(context):
 
 
 def create_task(directory, public, snapshot, *, seed=42, source_dir=None, intervention=None, modeling_task=None):
+    require_active_phase(public["split"])
     snap = snapshot if isinstance(snapshot, dict) else snapshots.verify(snapshot)
     if digest(snap["binding"]) != snap["snapshot_id"]:
         raise ValueError("Task requires a complete, verified snapshot binding")
@@ -51,6 +57,7 @@ def create_task(directory, public, snapshot, *, seed=42, source_dir=None, interv
 
 def prepare(directory, index, snapshot, phase, *, task_ids=None, intervention=None, boundary=None,
             mode="full", extend_from=None, reuse_test=None, source_dir=None):
+    require_active_phase(phase)
     directory, index = Path(directory).resolve(), Path(index).resolve()
     snap = snapshots.verify(snapshot)
     rows = data.tasks(index, phase)
@@ -63,12 +70,6 @@ def prepare(directory, index, snapshot, phase, *, task_ids=None, intervention=No
         rows = [r for r in rows if r["task_id"] in task_ids]
         if len(rows) != 1:
             raise ValueError("Learning input must belong to the indexed learning split")
-    elif phase == "transfer":
-        if not task_ids or len(task_ids) != 2 or len(set(task_ids)) != 2:
-            raise ValueError("Transfer evaluates the two reserved views of one scene")
-        rows = [r for r in rows if r["task_id"] in task_ids]
-        if len(rows) != 2 or len({r["scene_id"] for r in rows}) != 1:
-            raise ValueError("Transfer inputs must share one learning scene")
     elif phase not in ("validation", "test") or len(rows) != input_count(phase, mode) or task_ids is not None:
         raise ValueError("Evaluation requires the complete phase input set")
     views = sorted({r["view"] for r in rows})
@@ -251,6 +252,7 @@ def verify_seed(directory, seed, completed=False):
 def submit(directory, task_id, queue=None):
     from . import h3
     plan = load(directory)
+    require_active_phase(plan["phase"])
     if task_id not in plan["task_ids"]:
         raise ValueError("Task must belong to this evaluation")
     primary = Path(plan["outputs"]["42"][task_id])

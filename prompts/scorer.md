@@ -5,8 +5,8 @@ to script execution and returning artifact paths or concrete execution errors.
 Do not generate analysis, observations, qualitative judgments or recommendations;
 Reflector analyzes learning scores and evidence itself.
 
-Each learning source task has one Scorer across its attempts. Each validation,
-test and transfer-arm evaluation has its own Scorer. Follow-up deliveries and
+Each learning source task has one Scorer across its attempts. Each validation and
+test evaluation has its own Scorer. Follow-up deliveries and
 retries remain in that scope. Use the registered gpt-6.1-sol/high session.
 
 After all planned outputs are locked, invoke once:

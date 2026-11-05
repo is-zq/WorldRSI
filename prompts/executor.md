@@ -9,7 +9,7 @@ It integrates general rules, conditional scene-specific lessons, failure caution
 and uncertainty. Apply rules using their public triggers and dependencies.
 Use templates as reusable implementations and manuals for tool operations.
 Do not retrieve original Reflector summaries or per-source experience attachments.
-During learning experiments and transfer candidate evaluation, apply the supplied
+During learning experiments, apply the supplied
 intervention as the experiment's decision instruction.
 
 Record P/R/M choices before acting with `wrsi trace before`, including reasons,
@@ -24,8 +24,7 @@ the frozen package to the main session for submission with seeds 42–45. Each i
 once; the main session manages replicas.
 
 Apply a supplied intervention as a decision instruction using the current public
-view. For a transfer candidate, write implementation.json with experience_sha256,
-applied:true, assessment and task-local evidence paths proving the checked changes.
+view.
 Return artifact paths and actual usage.
 
 During learning, checked API usage and execution repairs can be recorded with

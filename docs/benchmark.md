@@ -4,12 +4,12 @@ The adapter imports the installed official Physics-IQ code, binds its source
 hashes, and measures each generated view against both real takes and masks.
 It preserves the official native-GT quarter-resolution loading and list parsing.
 `IQTable.compute_scores_scenario_by_view()` supplies the four clipped component
-scores and their arithmetic mean (`final_score_view`). All four experiment phases
+scores and their arithmetic mean (`final_score_view`). All experiment phases
 use this same numerical interpretation.
 
 Source preparation records first-frame paths, factual descriptions, media hashes
 and completed source decoding. Each learning source task has its own Scorer;
-each validation, test and transfer-arm evaluation has its own Scorer. The configured
+each validation and test evaluation has its own Scorer. The configured
 subagent is gpt-6.1-sol/high. Scorer only invokes scripts and returns artifact paths.
 It supplies no analysis or authored judgment. Reflector analyzes learning scores,
 generated outputs, components and execution evidence itself.

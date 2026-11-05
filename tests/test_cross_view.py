@@ -1,4 +1,6 @@
 import copy
+import contextlib
+import io
 import json
 from pathlib import Path
 import shutil
@@ -6,7 +8,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from worldrsi import agents, data, evaluation, learning, snapshots, workflow
+from worldrsi import agents, cli, data, evaluation, learning, records, reports, snapshots, workflow
 from worldrsi.common import ROOT, digest, read_json, sha256, write_json, write_jsonl
 
 
@@ -178,45 +180,86 @@ class CrossViewTests(unittest.TestCase):
             self.assertEqual(sha256(truth[field]["path"]), truth[field]["sha256"])
         self.assertNotIn("excluded-", json.dumps(payload))
         write_json(source/"branches/improve/report.json",{"mean":0.5})
-        with self.assertRaises(ValueError):learning.prepare_transfer(source)
+        with self.assertRaises(ValueError):learning.reviewed_experience(source)
 
-    def test_transfer_pairs_and_privacy_projection(self):
-        run, batch = self.run_start()
-        source, record, read_score = self.scored_source(batch["sources"][0]["directory"],0.2,0.4)
-        with patch("worldrsi.evaluation.score", side_effect=read_score):
-            closed = learning.close(source,record)
-        plans = learning.prepare_transfer(source)
-        self.assertEqual([p["expected_generations"] for p in plans.values()],[8,8])
-        a,b = [fixture_report(p["directory"],v) for p,v in zip(plans.values(),[0.3,0.4])]
-        with self.assertRaises(FileNotFoundError): learning.finalize_transfer(source)
-        for tid,d in b["outputs"]["42"].items():
-            p=Path(d); (p/"checked.txt").write_text("Target-view implementation checked")
-            write_json(p/"implementation.json",{"experience_sha256":digest(closed),"applied":True,"assessment":"Verified collider change",
-                       "evidence":["checked.txt"]})
-        result = learning.finalize_transfer(source)
-        self.assertTrue(result["passed"])
-        public = learning.accepted_bundle(source)
-        self.assertEqual(public["transfer"]["passed"],True)
-        self.assertNotIn("gains",public["transfer"])
-        self.assertNotIn("reports",public["transfer"])
-        self.assertEqual(learning.finalize_transfer(source),result)
+    def test_closed_source_is_ready_without_transfer_and_retains_evidence_checks(self):
+        _, batch = self.run_start()
+        source, record, _ = self.scored_source(batch["sources"][0]["directory"], 0.2, 0.4)
+        closed = learning.close(source, record)
+        self.assertFalse((source / "transfer").exists())
+        reviewed = learning.reviewed_experience(source)
+        self.assertEqual(reviewed["observations"], record["observations"])
+        self.assertEqual(reviewed["bundle"], record["bundle"])
+        self.assertNotIn("transfer", reviewed)
+        bundle = learning.accepted_bundle(source)
+        self.assertEqual(bundle["experience_sha256"], digest(closed))
+        self.assertNotIn("transfer", bundle)
+        plan = evaluation.load(source / "initial")
         with self.assertRaises(ValueError):
-            agents.packet("executor",self.root/"replica-executor",task_dir=next(iter(b["outputs"]["43"].values())))
-        proof_path=Path(next(iter(b["outputs"]["42"].values())))/"implementation.json"
-        changed=read_json(proof_path);changed["applied"]=False;write_json(proof_path,changed)
-        with self.assertRaises(ValueError): learning.accepted_bundle(source)
+            agents.packet("executor", self.root / "replica-executor",
+                          task_dir=next(iter(plan["outputs"]["43"].values())))
+        checked = Path(record["evidence"][0])
+        checked.write_text("tampered")
+        with self.assertRaisesRegex(ValueError, "Frozen implementation evidence"):
+            learning.accepted_bundle(source)
 
-    def test_both_reserved_view_means_must_improve(self):
-        base={"task_ids":["left","right"],"seeds":evaluation.SEEDS,"snapshot_id":"s","data_revision":"d","scorer":{},
-              "scores":{str(s):{"left":0.4,"right":0.4} for s in evaluation.SEEDS}}
-        for left,right,expected in [(0.6,0.41,True),(0.9,0.39,False),(0.9,0.4,False),(0.4,0.4,False)]:
-            candidate=copy.deepcopy(base)
-            candidate["scores"]={str(s):{"left":left,"right":right} for s in evaluation.SEEDS}
-            self.assertEqual(learning.transfer_gains(base,candidate)[1],expected)
-        candidate=copy.deepcopy(base)
-        for s in evaluation.SEEDS: candidate["scores"][str(s)]={"left":0.6,"right":0.6}
-        candidate["scores"]["42"]={"left":0.3,"right":0.3}
-        self.assertTrue(learning.transfer_gains(base,candidate)[1])
+    def test_closed_source_rejects_changed_learning_scores(self):
+        _, batch = self.run_start()
+        source, record, _ = self.scored_source(batch["sources"][0]["directory"], 0.2, 0.4)
+        learning.close(source, record)
+        fixture_report(source / "branches/improve", value=0.5)
+        with self.assertRaisesRegex(ValueError, "frozen score binding"):
+            learning.reviewed_experience(source)
+
+    def test_transfer_cannot_be_created_or_dispatched_but_archives_remain_readable(self):
+        run, _ = self.run_start()
+        archived = run / "archived-transfer"
+        # Persist the former evaluation format directly, without its retired creator.
+        rows = data.tasks(self.index, "transfer")[:2]
+        binding = {"snapshot": self.snap["snapshot_id"], "revision": rows[0]["data_revision"],
+                   "phase": "transfer", "ids": [r["task_id"] for r in rows], "intervention": None,
+                   "seeds": [42, 43, 44, 45], "views": sorted(r["view"] for r in rows), "mode": "full",
+                   "extended_from": None, "scorer": read_json(ROOT / "protocol/scorer.json"), "boundary": None}
+        outputs = {str(seed): {r["task_id"]: str(archived / "seeds" / str(seed) / r["task_id"])
+                              for r in rows} for seed in binding["seeds"]}
+        plan = {k: binding[k] for k in ("phase", "intervention", "seeds", "views", "mode",
+                                      "extended_from", "scorer", "boundary")}
+        plan.update(key=digest(binding), directory=str(archived), index_dir=str(self.index),
+                    snapshot_id=self.snap["snapshot_id"], snapshot_path=self.snap["path"],
+                    data_revision=rows[0]["data_revision"], task_ids=binding["ids"], outputs=outputs,
+                    expected_generations=8, additional_generations=8)
+        write_json(archived / "evaluation.json", plan)
+        for seed, tasks in outputs.items():
+            for row in rows:
+                write_json(Path(tasks[row["task_id"]]) / "task.json",
+                           {"public": row, "phase": "transfer", "generation_seed": int(seed)})
+        frozen = (archived / "evaluation.json").read_bytes()
+        historical = fixture_report(archived)
+        self.assertEqual(evaluation.report(archived), historical)
+        self.assertEqual(evaluation.pending(archived)["expected_generations"], 8)
+        tid = plan["task_ids"][0]
+        target = outputs["42"][tid]
+        packet = self.root / "retired-packet"
+        with self.assertRaisesRegex(ValueError, "Active phases"):
+            evaluation.prepare(self.root / "new-transfer", self.index, self.snap["path"],
+                               "transfer", task_ids=plan["task_ids"])
+        self.assertFalse((self.root / "new-transfer").exists())
+        with self.assertRaisesRegex(ValueError, "Active phases"):
+            evaluation.create_task(self.root / "new-task", rows[0], self.snap)
+        for role, args in (("executor", {"task_dir": target}), ("scorer", {"evaluation_dir": archived})):
+            with self.subTest(role=role), self.assertRaisesRegex(ValueError, "Active phases"):
+                agents.packet(role, packet, **args)
+        self.assertFalse(packet.exists())
+        with self.assertRaisesRegex(ValueError, "Active phases"):
+            evaluation.submit(archived, tid)
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as error:
+            cli.parser().parse_args(["transfer", "prepare", str(archived)])
+        self.assertEqual(error.exception.code, 2)
+        records.cost(target, "archived-generation", "h3", {"h3_generations": 1})
+        summary = reports.summarize(run)
+        self.assertEqual(summary["costs"]["transfer"]["totals"]["h3_generations"], 1)
+        self.assertTrue(all("transfer" not in src for r in summary["rounds"] for src in r["sources"]))
+        self.assertEqual((archived / "evaluation.json").read_bytes(), frozen)
 
     def test_pending_boundaries_and_patience(self):
         for count,streak,expected in [(1,1,None),(3,3,"epoch"),(5,5,"partial_epoch"),(6,5,"epoch"),(12,0,"epoch")]:
@@ -241,40 +284,71 @@ class CrossViewTests(unittest.TestCase):
         candidate["task_ids"]=candidate["task_ids"][:-1]
         with self.assertRaises(ValueError):evaluation.compare(candidate,base)
 
-    def test_eleven_source_barrier_manual_only_candidate_and_atomic_rejection(self):
-        run,batch=self.run_start()
-        with self.assertRaises(FileNotFoundError): workflow.manual_inputs(run)
-        for item in batch["sources"]:
-            d=Path(item["directory"])
-            fixture_report(d/"initial")
-            learning.close(d,{"status":"stalled","best_attempt":"initial", "reason":"No useful next step",
-                              "observations":["A narrow scenario still supplies a useful caution"]})
-        inputs=workflow.manual_inputs(run)
-        shutil.copytree(inputs["base_manuals"],inputs["output_manuals"])
+    def test_eleven_source_barrier_and_history_without_transfer_or_promotion(self):
+        run, batch = self.run_start()
+        history_path = Path(batch["directory"]) / "history.json"
+        frozen_history = history_path.read_bytes()
+        frozen_sources = {}
+        with self.assertRaises(FileNotFoundError):
+            workflow.manual_inputs(run)
+        for i, item in enumerate(batch["sources"]):
+            d = Path(item["directory"])
+            if i < 3:
+                d, record, _ = self.scored_source(d, 0.2, 0.4)
+                closed = learning.close(d, record)
+                if i:
+                    # Historical pass/fail receipts are no longer a prerequisite.
+                    receipt = d / "transfer/decision.json"
+                    write_json(receipt, {"status": "evaluated", "passed": i == 2,
+                                         "experience_sha256": digest(closed)})
+                    frozen_sources[receipt] = receipt.read_bytes()
+            else:
+                status = ("stalled", "blocked", "saturated")[i % 3]
+                fixture_report(d / "initial", value=1 if status == "saturated" else 0.4)
+                learning.close(d, {"status": status, "best_attempt": "initial", "reason": "Fixture closure",
+                                   "recovery_condition": "Tool restored" if status == "blocked" else None,
+                                   "observations": ["Keep the source's useful observations"]})
+            frozen_sources[d / "experience.json"] = (d / "experience.json").read_bytes()
+            if i != len(batch["sources"]) - 1:
+                with self.assertRaises(FileNotFoundError):
+                    workflow.manual_inputs(run)
+            if i not in (1, 2):
+                self.assertFalse((d / "transfer").exists())
+        inputs = workflow.manual_inputs(run)
+        shutil.copytree(inputs["base_manuals"], inputs["output_manuals"])
         Path(inputs["merge_notes"]).write_text("Retained checked operations.")
         workflow.publish_manuals(run)
-        packet=self.root/"editor"
-        agents.packet("editor",packet,run_dir=run)
-        experiences = read_json(packet/"input.json")["experiences"]
-        self.assertEqual(len(experiences),11)
-        self.assertTrue(all(e["status"] == "stalled" and e["observations"] for e in experiences))
-        c=workflow.candidate(run)
-        self.assertEqual(c["snapshot_id"],self.snap["snapshot_id"])
-        decision=workflow.decide(run)
-        self.assertFalse(decision["accepted"])
-        state=read_json(run/"run.json")
-        self.assertEqual(state["current_snapshot"],self.snap["path"])
-        self.assertEqual(state["rejection_streak"],1)
-        self.assertEqual(workflow.history(run)["bundles"],[])
+        packet = self.root / "editor"
+        agents.packet("editor", packet, run_dir=run)
+        experiences = read_json(packet / "input.json")["experiences"]
+        self.assertEqual(len(experiences), 11)
+        statuses = {"sufficient_gain", "stalled", "blocked", "saturated"}
+        self.assertEqual({e["status"] for e in experiences}, statuses)
+        self.assertTrue(all(e["observations"] and "transfer" not in e for e in experiences))
+        c = workflow.candidate(run)
+        self.assertEqual(c["snapshot_id"], self.snap["snapshot_id"])
+        self.assertFalse(workflow.decide(run)["accepted"])
+        state = read_json(run / "run.json")
+        self.assertEqual(state["current_snapshot"], self.snap["path"])
+        self.assertEqual(state["rejection_streak"], 1)
+        history = workflow.history(run)
+        self.assertEqual({b["scene_id"] for b in history["bundles"]},
+                         {s["scene_id"] for s in batch["sources"][:3]})
+        self.assertTrue(all("transfer" not in b for b in history["bundles"]))
         next_batch = workflow.begin_round(run)
+        self.assertEqual(read_json(Path(next_batch["directory"]) / "history.json"), history)
+        self.assertEqual(history_path.read_bytes(), frozen_history)
+        for path, original in frozen_sources.items():
+            self.assertEqual(path.read_bytes(), original)
         for item in next_batch["sources"]:
-            d=Path(item["directory"])
-            fixture_report(d/"initial", value=1)
-            learning.close(d,{"status":"saturated","best_attempt":"initial", "reason":"Already at ceiling"})
+            d = Path(item["directory"])
+            fixture_report(d / "initial", value=1)
+            learning.close(d, {"status": "saturated", "best_attempt": "initial", "reason": "Already at ceiling"})
         combined = workflow.editor_experiences(run)
-        self.assertEqual(len(combined),22)
-        self.assertEqual({e["round"] for e in combined},{1,2})
-        self.assertEqual({e["status"] for e in combined},{"stalled","saturated"})
+        self.assertEqual(len(combined), 22)
+        self.assertEqual({e["round"] for e in combined}, {1, 2})
+        self.assertEqual({e["status"] for e in combined}, statuses)
+        self.assertNotIn("transfer", reports.summarize(run)["costs"])
 
     def test_accepted_candidate_activates_complete_snapshot_and_next_batch_history(self):
         run,batch=self.run_start()
@@ -337,32 +411,6 @@ class CrossViewTests(unittest.TestCase):
             with self.assertRaises(FileNotFoundError):
                 agents.packet("reflector",self.root/(field+"-missing"),source_dir=source)
             file.write_bytes(original)
-
-    def test_failed_transfer_is_reviewed_and_evidence_is_verified(self):
-        _, batch = self.run_start()
-        source, record, _ = self.scored_source(batch["sources"][0]["directory"],0.2,0.4)
-        closed = learning.close(source,record)
-        plans = learning.prepare_transfer(source)
-        fixture_report(plans["baseline"]["directory"],0.5)
-        candidate = fixture_report(plans["candidate"]["directory"],0.3)
-        for d in candidate["outputs"]["42"].values():
-            p=Path(d); (p/"checked.txt").write_text("Checked target implementation")
-            write_json(p/"implementation.json",{"experience_sha256":digest(closed),"applied":True,
-                       "assessment":"Applied complete experiment", "evidence":[str(p/"checked.txt")]})
-        decision = learning.finalize_transfer(source)
-        self.assertFalse(decision["passed"])
-        reviewed = learning.reviewed_experience(source)
-        self.assertEqual(reviewed["observations"],record["observations"])
-        self.assertEqual(reviewed["bundle"],record["bundle"])
-        self.assertFalse(reviewed["transfer"]["passed"])
-        self.assertIsNone(learning.accepted_bundle(source))
-        packet = self.root/"transfer-executor"
-        agents.packet("executor",packet,task_dir=next(iter(candidate["outputs"]["42"].values())))
-        self.assertEqual(read_json(packet/"input.json")["intervention"]["experience_sha256"],digest(closed))
-        checked=Path(next(iter(candidate["outputs"]["42"].values())))/"checked.txt"
-        checked.write_text("tampered")
-        with self.assertRaisesRegex(ValueError,"checked target implementation"):
-            learning.reviewed_experience(source)
 
     def test_quick_run_starts_learning_while_initial_test_is_pending(self):
         state=workflow.init_run("quick",self.index,self.snap["path"],root=self.root,mode="quick")

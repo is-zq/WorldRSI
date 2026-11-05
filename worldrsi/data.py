@@ -33,6 +33,8 @@ def prepare(destination, root=ROOT):
     if actual != set(categories):
         raise ValueError("Partition scenes must exactly match the benchmark index")
     public, secrets = {}, {}
+    # Preserve the legacy partition in the index binding and its data revision.
+    # Active evaluations use only learning, validation and test.
     for phase in ("learning", "transfer", "validation", "test"):
         public[phase], secrets[phase] = [], []
         for p in source["binding"]["public"]:

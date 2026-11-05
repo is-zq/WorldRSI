@@ -2,7 +2,7 @@
 from pathlib import Path
 
 from .common import ROOT, digest, immutable_json, read_json, sha256, write_text
-from . import data, learning, sessions, snapshots, workflow
+from . import data, evaluation, learning, sessions, snapshots, workflow
 
 
 def packet(role, destination, *, task_dir=None, source_dir=None, run_dir=None, index_dir=None,
@@ -14,6 +14,7 @@ def packet(role, destination, *, task_dir=None, source_dir=None, run_dir=None, i
     settings = runtime["roles"][role]
     if role == "executor":
         c = read_json(Path(task_dir) / "task.json")
+        evaluation.require_active_phase(c["phase"])
         snapshots.verify(c["snapshot_path"])
         instructions = Path(c["snapshot_path"]) / "source/prompts/executor.md"
         settings = c["roles"][role]
@@ -27,11 +28,11 @@ def packet(role, destination, *, task_dir=None, source_dir=None, run_dir=None, i
         payload["decision_experience"] = snapshots.decision_experience(policy)
         payload["tool_documentation"] = str(Path(c["snapshot_path"]) / "source/docs/tools.md")
     elif role == "scorer":
-        from . import evaluation
         if bool(task_dir) == bool(evaluation_dir):
             raise ValueError("Scorer requires one learning attempt or one complete evaluation")
         target = Path(task_dir or evaluation_dir).resolve()
         plan = evaluation.prepare_learning(target, index_dir) if task_dir else evaluation.load(target)
+        evaluation.require_active_phase(plan["phase"])
         if plan["phase"] == "learning":
             context = read_json(target / "task.json")
             scope = Path(context["source_dir"]).resolve() if context.get("source_dir") else target
