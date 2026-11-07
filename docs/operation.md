@@ -148,7 +148,18 @@ actual usage, then finalize both reports before deciding:
 ```
 
 `decide` compares the candidate against this round's baseline and binds both report
-hashes. `history` supplies sufficient-gain bundles and `promotion` summaries.
+hashes. A score decline returns `status: revision_required` while up to three
+additional revisions remain. Keep this round open: prepare a new Editor packet,
+continue its registered session, and publish its revised policy/templates using
+`run candidate`. The Editor writes `revision.md` beside its policy directory.
+The first candidate retains `promotion/candidate`; later ones use
+`promotion/candidate-02` through `candidate-04`, with Editor outputs under
+`editor/attempt-02` through `attempt-04`. Each candidate gets fresh Executors and
+its own Scorer; reuse the finalized baseline. Run the full 11 × 4 evaluation and
+call `decide` again. Only accepted/rejected final status permits the next round.
+Repeated commands resume existing attempts; infrastructure recovery does not use
+a revision. `history` supplies sufficient-gain bundles and all promotion attempts;
+`report` exposes the current revision state and separated costs.
 The next round does not require a test. Keep long commands in named tmux sessions
 with logs under `logs/`; report the session and log path.
 
@@ -159,6 +170,11 @@ Choose the candidate of any published round, including rejected candidates:
 ```bash
 ./wrsi run test RUN_DIR --round 2 --target candidate --mode quick
 ```
+
+`--attempt A` with `--target candidate --round R` selects a particular published
+attempt; the default is the latest. Test plans bind the selected attempt, so later
+candidate revisions do not change existing test identities. Old reports without
+an attempt retain the first candidate binding.
 
 `--target active` selects the Harness active after that round's completed decision.
 `--round 0` selects the initial Harness. Target defaults to `candidate`; mode

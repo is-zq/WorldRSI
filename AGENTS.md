@@ -24,7 +24,8 @@ retaining conditional lessons and uncertainty. Ordinary Executors read that
 synthesis; learning branches retain experimental instructions. Manual
 Manager consolidates checked learning-stage tool operations. Whole-Agent promotion
 compares the candidate against the round-start Harness on the eleven fixed
-learning inputs and activates policy, templates and manuals together. Held-out
+learning inputs and activates policy, templates and manuals together. Score declines allow up to three Editor revisions against the same baseline
+before final rejection; intermediate failures keep the round open. Held-out
 tests select historical Harnesses on demand and do not gate learning.
 
 Learning and promotion use the regular H3 input queue; held-out tests

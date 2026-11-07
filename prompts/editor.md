@@ -7,6 +7,18 @@ and saturated sources, and candidates rejected by whole-Agent promotion.
 Use closure reasons, observations, learning evidence and
 aggregate promotion history to judge what each lesson supports.
 
+When promotion_feedback is supplied, analyze the candidate's decline against the
+fixed round-start baseline using all inputs and seeds, component evidence, outputs
+and execution records. Distinguish observed regressions from causal hypotheses
+and generation variability. Re-synthesize the supplied previous candidate's policy
+and templates, preserving supported gains and conditional lessons while addressing
+the regressions. Keep manuals fixed. Save revision.md in output_directory with
+the evidence, explanation, changes, expected effects and remaining uncertainty.
+Prior attempts remain immutable. The main session permits at most three revisions
+after the initial candidate, only for a measured score decline; each revision is
+evaluated on all eleven fixed learning inputs and four seeds against the same
+baseline. Held-out test feedback is not a synthesis input.
+
 Copy the supplied policy and templates into output_directory/policy and
 output_directory/templates, then edit those copies. The policy must contain only
 skills/worldrsi-decision/SKILL.md, preserving its skill frontmatter. Write the

@@ -2,7 +2,7 @@
 from pathlib import Path
 from .common import read_json
 from .records import total_cost
-from .workflow import stopping
+from .workflow import stopping, promotion_attempts, revision_required
 
 
 def summarize(run_dir):
@@ -27,7 +27,8 @@ def summarize(run_dir):
             closure = read_json(d / "experience.json") if (d / "experience.json").exists() else None
             sources.append({"scene_id": s["scene_id"], "closure": closure and closure["status"],
                             "gain": closure and closure["gain"]})
-        rounds.append({"round": r["round"], "epoch": r["epoch"], "sources": sources, "decision": r["decision"]})
+        rounds.append({"round": r["round"], "epoch": r["epoch"], "sources": sources, "decision": r["decision"],
+                       "promotion_attempts": promotion_attempts(r), "revision_required": revision_required(r)})
     return {"run_id": state["run_id"], "current_snapshot": state["current_snapshot"], "rounds": rounds,
             "mode": state["mode"], "initial_test": state.get("initial_test"), "initial_test_plan": state.get("initial_test_plan"),
             "tests": state["tests"], "stopping": stopping(state),

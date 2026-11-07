@@ -29,6 +29,7 @@ def parser():
     r.add_argument("--report")
     r.add_argument("--mode", choices=["quick", "full"])
     r.add_argument("--round", type=int, dest="round_number")
+    r.add_argument("--attempt", type=int)
     r.add_argument("--target", choices=["candidate", "active"], default="candidate")
     s = commands.add_parser("source")
     s.add_argument("operation", choices=["progress", "branch", "close"])
@@ -99,7 +100,7 @@ def execute(a):
         if a.operation == "init": return workflow.init_run(a.path, a.index, a.snapshot, mode=a.mode or "full")
         if a.operation == "candidate": return workflow.candidate(a.path, a.policy, a.templates)
         if a.operation == "register-test": return workflow.register_test(a.path, a.report)
-        if a.operation == "test": return workflow.prepare_test(a.path, a.mode, round_number=a.round_number, target=a.target)
+        if a.operation == "test": return workflow.prepare_test(a.path, a.mode, round_number=a.round_number, target=a.target, attempt=a.attempt)
         if a.operation == "status": return read_json(Path(a.path) / "run.json")
         if a.operation == "report":
             from .reports import summarize

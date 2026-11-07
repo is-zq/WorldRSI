@@ -91,7 +91,19 @@ Never compare scores from different rounds' input sets. Higher quality promotes
 all three components atomically. Equal quality compares H3 generations, local GPU
 seconds, model tokens and local CPU seconds per input, in that order. The first
 different known cost must decrease; an unknown required cost prevents promotion.
-A rejection retains the round-start Harness. Record both reports and their hashes.
+A measured score decline beyond the tolerance returns the candidate to Editor
+for re-synthesis, up to three additional candidates (four evaluations total).
+Editor receives per-input, per-seed differences, component and execution evidence,
+all prior attempts and learning summaries. It analyzes causes and uncertainty,
+revises the previous policy/templates and records its rationale; manuals remain
+fixed. Each revision uses fresh ordinary Executors and its own Scorer on all 44
+outputs, against the same verified baseline. Intermediate failures keep the round
+open and do not change the rejection streak. Only final acceptance or rejection
+settles the round; exhausted retries retain the round-start Harness. Equal-score
+and cost-based failures retain the existing final decision rules. Pending outputs
+or infrastructure failures resume the same attempt without consuming a revision.
+Keep every candidate, assessment, feedback and report immutable with bound hashes.
+Repeated publication of the same snapshot resumes its existing attempt.
 
 Shared history includes learning summaries and promotion outcomes, including
 rejected candidates. Held-out test scores never enter role feedback or promotion.
@@ -99,7 +111,7 @@ rejected candidates. Held-out test scores never enter role feedback or promotion
 ## Held-out tests and reporting
 
 Tests evaluate only the 33 formerly designated validation scenes. Select a round's
-frozen candidate (including rejected candidates), its active Harness after the
+frozen candidate (including rejected candidates and earlier attempts), its active Harness after the
 promotion decision, or the initial Harness with round 0. Reports retain the run,
 round, target and exact complete snapshot, independent of later learning.
 Report four seed means, overall mean, sample standard deviation (ddof=1),

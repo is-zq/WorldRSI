@@ -77,12 +77,10 @@ def packet(role, destination, *, task_dir=None, source_dir=None, run_dir=None, i
         else:
             if current["manuals"] is None:
                 raise ValueError("Editor requires the staged manual publication")
-            payload = {"round": current["round"], "policy": str(Path(current["snapshot_path"]) / "policy"),
-                       "templates": str(Path(current["snapshot_path"]) / "source/templates"),
+            payload = {"round": current["round"], **workflow.editor_revision(current),
                        "manuals": current["manuals"]["output_manuals"],
                        "experiences": workflow.editor_experiences(scope),
-                       "history": {"promotion": workflow.history(scope)["promotion"]},
-                       "output_directory": str(Path(current["directory"]) / "editor")}
+                       "history": {"promotion": workflow.history(scope)["promotion"]}}
         payload["cost_directory"] = str(Path(current["directory"]) / role)
     else:
         raise ValueError("Role must be one of the configured experiment roles")
