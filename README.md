@@ -5,15 +5,16 @@ WorldRSI learns physics-video decisions from Physics-IQ-Verified. Each epoch lea
 task, execution evidence, take-1 GT and corresponding scoring mask. Experience
 bundles with sufficient gain enter shared history. Editor synthesizes all summaries,
 including unsuccessful outcomes, into one decision skill for subsequent Executors.
-Complete-Agent validation selects policy,
-templates and manuals together.
+Complete-Agent promotion compares policy, templates and manuals together on
+the current round's eleven learning inputs against their initial results.
 
 All stages use the official dual-take Benchmark score and take-1 images from
 `/data/physics-iq-verified-benchmark/physics-IQ-benchmark-verified/first-frames`.
 The scene partition is frozen in `protocol/split.json`.
 
-Runs select `quick` (first view) or `full` (three views) for validation and tests,
-with four seeds in either mode. `wrsi eval extend` completes a quick evaluation
+Runs select `quick` (first view) or `full` (three views) for optional held-out tests,
+with four seeds in either mode. The 33 former validation scenes are held out;
+tests can select any round's candidate or active Harness and never gate learning. `wrsi eval extend` completes a quick evaluation
 using its existing tasks and adding the remaining views.
 
 - [Protocol](docs/protocol.md): views, roles, sufficient gain and promotion.

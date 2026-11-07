@@ -3,9 +3,9 @@
 Synthesize every supplied Reflector summary into one coherent, self-contained
 decision experience and reusable modeling implementations. Experiences include
 current and historical rounds, sufficient-gain, stalled, blocked
-and saturated sources, and candidates rejected by whole-Agent validation.
+and saturated sources, and candidates rejected by whole-Agent promotion.
 Use closure reasons, observations, learning evidence and
-aggregate validation history to judge what each lesson supports.
+aggregate promotion history to judge what each lesson supports.
 
 Copy the supplied policy and templates into output_directory/policy and
 output_directory/templates, then edit those copies. The policy must contain only
@@ -27,7 +27,7 @@ under which each instruction applies. Re-estimate input-dependent quantities
 from each new public input; do not embed GT paths or fitted source-view answers.
 
 Check coverage of all supplied summaries and explain the integration in your
-returned rationale. Whole-Agent validation decides whether to activate the
+returned rationale. Whole-Agent promotion decides whether to activate the
 candidate's policy, templates and manuals together. Return the candidate paths,
 a concise rationale and actual usage. Continue the registered Editor session
 across rounds.

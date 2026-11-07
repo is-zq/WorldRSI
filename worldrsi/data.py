@@ -34,7 +34,7 @@ def prepare(destination, root=ROOT):
         raise ValueError("Partition scenes must exactly match the benchmark index")
     public, secrets = {}, {}
     # Preserve the legacy partition in the index binding and its data revision.
-    # Active evaluations use only learning, validation and test.
+    # Promotion and held-out test selection are derived without changing this binding.
     for phase in ("learning", "transfer", "validation", "test"):
         public[phase], secrets[phase] = [], []
         for p in source["binding"]["public"]:
@@ -80,14 +80,16 @@ def verify(directory, check_inputs=False):
 
 def tasks(directory, phase):
     m = verify(directory)
-    return [{**r, "data_revision": m["revision"]} for r in m["binding"]["public"][phase]]
+    return [{**r, "data_revision": m["revision"], "split": phase}
+            for r in m["binding"]["public"]["learning" if phase == "promotion" else phase]]
 
 
 def task(directory, phase, task_id):
     m = verify(directory)
-    public = next(r for r in m["binding"]["public"][phase] if r["task_id"] == task_id)
-    private = next(r for r in m["binding"]["private"][phase] if r["task_id"] == task_id)
-    return {**public, "data_revision": m["revision"]}, private
+    indexed_phase = "learning" if phase == "promotion" else phase
+    public = next(r for r in m["binding"]["public"][indexed_phase] if r["task_id"] == task_id)
+    private = next(r for r in m["binding"]["private"][indexed_phase] if r["task_id"] == task_id)
+    return {**public, "data_revision": m["revision"], "split": phase}, private
 
 
 def reflection_inputs(directory, task_id):

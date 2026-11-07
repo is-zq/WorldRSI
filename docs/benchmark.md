@@ -9,7 +9,7 @@ use this same numerical interpretation.
 
 Source preparation records first-frame paths, factual descriptions, media hashes
 and completed source decoding. Each learning source task has its own Scorer;
-each validation and test evaluation has its own Scorer. The configured
+each promotion and test evaluation has its own Scorer. The configured
 subagent is gpt-6.1-sol/high. Scorer only invokes scripts and returns artifact paths.
 It supplies no analysis or authored judgment. Reflector analyzes learning scores,
 generated outputs, components and execution evidence itself.
@@ -31,8 +31,8 @@ hashed before reuse; sources with changed hashes receive fresh media validation.
 Invoke once after all outputs are locked: one learning input × four seeds, or
 all evaluation inputs × four seeds. The script measures and finalizes each output
 without a Scorer-authored judgment. It binds the registered task/evaluation session.
-Retries retain verified scores and resume unfinished measurements. Overlapping
-validation reads the test's original score files without another measurement.
+Retries retain verified scores and resume unfinished measurements. Promotion
+baselines verify the round's initial score files without another measurement.
 
 Reflector receives the public task, source-local components, scores, outputs,
 and the learning view's take-1 GT and matching scoring mask with verified index

@@ -12,8 +12,8 @@ EPSILON = 1e-12
 
 
 def require_active_phase(phase):
-    if phase not in ("learning", "validation", "test"):
-        raise ValueError("Active phases are learning, validation and test")
+    if phase not in ("learning", "promotion", "test"):
+        raise ValueError("Active phases are learning, promotion and test")
 
 
 def views_for(mode):
@@ -24,7 +24,7 @@ def views_for(mode):
 
 
 def input_count(phase, mode):
-    return (33 if phase == "validation" else 66) * len(views_for(mode))
+    return 11 if phase == "promotion" else 33 * len(views_for(mode))
 
 
 def generation_seed(context):
@@ -56,89 +56,94 @@ def create_task(directory, public, snapshot, *, seed=42, source_dir=None, interv
 
 
 def prepare(directory, index, snapshot, phase, *, task_ids=None, intervention=None, boundary=None,
-            mode="full", extend_from=None, reuse_test=None, source_dir=None):
+            mode="full", extend_from=None, source_dir=None, learning_attempts=None):
     require_active_phase(phase)
     directory, index = Path(directory).resolve(), Path(index).resolve()
     snap = snapshots.verify(snapshot)
     rows = data.tasks(index, phase)
     selected_views = views_for(mode)
-    if phase in ("validation", "test"):
-        rows = [r for r in rows if r["view"] in selected_views]
-    if phase == "learning":
-        if not task_ids or len(task_ids) != 1:
-            raise ValueError("Learning evaluates one public input across four seeds")
+    if phase == "test":
+        heldout = {r["scene_id"] for r in data.tasks(index, "validation")}
+        rows = [r for r in rows if r["scene_id"] in heldout and r["view"] in selected_views]
+        if task_ids is not None or len(rows) != input_count(phase, mode):
+            raise ValueError("Testing requires the complete held-out input set")
+    else:
+        count = 1 if phase == "learning" else 11
+        if not task_ids or len(task_ids) != count or len(set(task_ids)) != count:
+            raise ValueError(f"{phase} requires {count} distinct learning inputs")
         rows = [r for r in rows if r["task_id"] in task_ids]
-        if len(rows) != 1:
-            raise ValueError("Learning input must belong to the indexed learning split")
-    elif phase not in ("validation", "test") or len(rows) != input_count(phase, mode) or task_ids is not None:
-        raise ValueError("Evaluation requires the complete phase input set")
+        if len(rows) != count:
+            raise ValueError("Inputs must belong to the indexed learning views")
+        if phase == "promotion" and (intervention is not None or not boundary):
+            raise ValueError("Promotion requires a round binding and no intervention")
+        mode = "full"  # Learning views are fixed; quick/full only controls tests.
     views = sorted({r["view"] for r in rows})
-    if phase in ("validation", "test"):
-        by_scene = {}
-        for row in rows:
-            by_scene.setdefault(row["scene_id"], []).append(row["view"])
-        required = sorted(selected_views)
-        if views != required or any(sorted(v) != required for v in by_scene.values()):
-            raise ValueError("Each evaluation scene must contain its declared perspectives")
     config = read_json(ROOT / "protocol/scorer.json")
-    extension = None
-    inherited = None
+    extra = {"population": "heldout"} if phase == "test" else {}
+    extension, inherited = None, None
     if extend_from is not None:
         inherited = load(extend_from)
-        if (inherited["phase"] != phase or inherited["mode"] != "quick" or mode != "full"
+        if (phase != "test" or inherited["phase"] != phase or inherited.get("population") != "heldout"
+                or inherited["mode"] != "quick" or mode != "full"
                 or inherited["snapshot_id"] != snap["snapshot_id"] or inherited["data_revision"] != rows[0]["data_revision"]
                 or inherited["scorer"] != config or inherited["boundary"] != boundary
                 or inherited["intervention"] != intervention or inherited["seeds"] != SEEDS
                 or not set(inherited["task_ids"]) <= {r["task_id"] for r in rows}):
-            raise ValueError("Full completion requires the same quick evaluation snapshot, inputs, seeds and boundary")
-        source_path = Path(inherited["directory"]) / "evaluation.json"
-        extension = {"path": str(source_path), "sha256": sha256(source_path)}
-    reuse = None
-    test = load(reuse_test) if reuse_test else None
-    if test:
-        if (phase != "validation" or test["phase"] != "test"
-                or test["snapshot_id"] != snap["snapshot_id"] or test["data_revision"] != rows[0]["data_revision"]
-                or test["scorer"] != config or test["seeds"] != SEEDS or test["intervention"] != intervention):
-            raise ValueError("Validation reuse requires a test of the same Agent, data, seeds, intervention and scorer")
-        source_path = Path(test["directory"]) / "evaluation.json"
-        reuse = {"path": str(source_path), "sha256": sha256(source_path)}
-    key = digest({**({"reuse_test": reuse} if reuse else {}), "snapshot": snap["snapshot_id"], "revision": rows[0]["data_revision"],
-                  "phase": phase, "ids": [r["task_id"] for r in rows], "intervention": intervention,
-                  "seeds": SEEDS, "views": views, "mode": mode, "extended_from": extension,
-                  "scorer": config, "boundary": boundary})
+            raise ValueError("Full completion requires the same quick test snapshot, inputs, seeds and boundary")
+        path = Path(inherited["directory"]) / "evaluation.json"
+        extension = {"path": str(path), "sha256": sha256(path)}
     outputs = {str(seed): {r["task_id"]: str(directory / "seeds" / str(seed) / r["task_id"]) for r in rows} for seed in SEEDS}
+    shared_ids = set()
     if phase == "learning":
         outputs["42"][rows[0]["task_id"]] = str(directory)
-    if test:
-        for seed in SEEDS:
-            outputs[str(seed)].update({t: d for t, d in test["outputs"][str(seed)].items() if t in outputs[str(seed)]})
+    if learning_attempts is not None:
+        if phase != "promotion" or len(learning_attempts) != 11:
+            raise ValueError("Promotion baseline requires eleven initial learning reports")
+        refs = []
+        for attempt in learning_attempts:
+            source = report(attempt)
+            if (source["phase"] != "learning" or source["snapshot_id"] != snap["snapshot_id"]
+                    or source["data_revision"] != rows[0]["data_revision"] or source["scorer"] != config
+                    or source["seeds"] != SEEDS or source["intervention"] is not None
+                    or len(source["task_ids"]) != 1):
+                raise ValueError("Baseline must reuse initial results of the same Agent, data, seeds and scorer")
+            tid = source["task_ids"][0]
+            if tid not in outputs["42"] or tid in shared_ids:
+                raise ValueError("Baseline initial inputs must exactly match the round")
+            shared_ids.add(tid)
+            path = Path(source["directory"]) / "report.json"
+            refs.append({"path": str(path), "sha256": sha256(path)})
+            for seed in SEEDS:
+                outputs[str(seed)][tid] = source["outputs"][str(seed)][tid]
+        extra["reuse_learning"] = refs
     if inherited:
+        shared_ids.update(inherited["task_ids"])
         for seed in SEEDS:
-            if test and any(t in test["outputs"][str(seed)] and d != test["outputs"][str(seed)][t]
-                            for t, d in inherited["outputs"][str(seed)].items()):
-                raise ValueError("Reuse cannot replace frozen extension outputs")
             outputs[str(seed)].update(inherited["outputs"][str(seed)])
-    record = {"key": key, "directory": str(directory), "index_dir": str(index), "phase": phase,
+    record = {"directory": str(directory), "index_dir": str(index), "phase": phase,
               "snapshot_id": snap["snapshot_id"], "snapshot_path": snap["path"],
               "data_revision": rows[0]["data_revision"], "scorer": config,
               "task_ids": [r["task_id"] for r in rows], "seeds": SEEDS, "views": views, "mode": mode,
-              "extended_from": extension, "outputs": outputs,
-              "intervention": intervention, "boundary": boundary, "expected_generations": len(rows) * 4}
-    if reuse:
-        record["reuse_test"] = reuse
-    shared_ids = (set(inherited["task_ids"]) if inherited else set()) | (set(test["task_ids"]) if test else set())
-    record["additional_generations"] = len({r["task_id"] for r in rows} - shared_ids) * 4
+              "extended_from": extension, "outputs": outputs, **extra,
+              "intervention": intervention, "boundary": boundary, "expected_generations": len(rows) * 4,
+              "additional_generations": (len(rows) - len(shared_ids)) * 4}
+    record["key"] = plan_key(record)
     immutable_json(directory / "evaluation.json", record)
     for seed in SEEDS:
         for public in rows:
-            if test and public["task_id"] in test["task_ids"]:
-                context = read_json(Path(outputs[str(seed)][public["task_id"]]) / "task.json")
-                if {**context["public"], "split": "validation"} != public:
-                    raise ValueError("Reused test input must match the indexed validation input")
+            if public["task_id"] in shared_ids:
                 continue
             create_task(outputs[str(seed)][public["task_id"]], public, snap, seed=seed, intervention=intervention, source_dir=source_dir,
                         modeling_task=outputs["42"][public["task_id"]] if seed != 42 else None)
     return record
+
+
+def plan_key(plan):
+    extras = {k: plan[k] for k in ("reuse_test", "reuse_learning", "population") if k in plan}
+    return digest({**extras, "snapshot": plan["snapshot_id"], "revision": plan["data_revision"],
+                   "phase": plan["phase"], "ids": plan["task_ids"], "intervention": plan["intervention"],
+                   "seeds": plan["seeds"], "views": plan["views"], "mode": plan["mode"],
+                   "extended_from": plan["extended_from"], "scorer": plan["scorer"], "boundary": plan["boundary"]})
 
 
 def prepare_learning(directory, index=None):
@@ -169,10 +174,7 @@ def load(directory):
     plan = read_json(p / "evaluation.json" if p.is_dir() else p)
     if plan["seeds"] != SEEDS or set(plan["outputs"]) != {str(s) for s in SEEDS}:
         raise ValueError("Evaluation requires four declared generation seeds")
-    key = digest({**({"reuse_test": plan["reuse_test"]} if plan.get("reuse_test") else {}), "snapshot": plan["snapshot_id"], "revision": plan["data_revision"],
-                  "phase": plan["phase"], "ids": plan["task_ids"], "intervention": plan["intervention"],
-                  "seeds": plan["seeds"], "views": plan["views"], "mode": plan["mode"],
-                  "extended_from": plan["extended_from"], "scorer": plan["scorer"], "boundary": plan["boundary"]})
+    key = plan_key(plan)
     if key != plan["key"] or any(set(rows) != set(plan["task_ids"]) for rows in plan["outputs"].values()):
         raise ValueError("Evaluation plan must retain its frozen identity and input membership")
     if plan["extended_from"] and sha256(plan["extended_from"]["path"]) != plan["extended_from"]["sha256"]:
@@ -189,24 +191,33 @@ def load(directory):
             for tid in set(plan["task_ids"]) & set(test["task_ids"]):
                 if plan["outputs"][str(seed)][tid] != test["outputs"][str(seed)][tid]:
                     raise ValueError("Validation must reuse the original test tasks and scores")
+    if plan.get("reuse_learning"):
+        seen = set()
+        for ref in plan["reuse_learning"]:
+            if sha256(ref["path"]) != ref["sha256"]:
+                raise ValueError("Baseline must retain its initial report binding")
+            source = report(ref["path"])
+            if (plan["phase"] != "promotion" or source["phase"] != "learning"
+                    or any(source[k] != plan[k] for k in ("snapshot_id", "data_revision", "scorer", "seeds", "intervention"))
+                    or len(source["task_ids"]) != 1):
+                raise ValueError("Baseline requires compatible initial learning reports")
+            tid = source["task_ids"][0]
+            if tid in seen or any(plan["outputs"][str(seed)].get(tid) != source["outputs"][str(seed)][tid] for seed in SEEDS):
+                raise ValueError("Baseline must reuse the original initial outputs")
+            seen.add(tid)
+        if len(seen) != 11 or seen != set(plan["task_ids"]):
+            raise ValueError("Baseline must cover the eleven round inputs")
     return plan
-
-
-def validation_from_test(directory, destination, mode=None):
-    test = load(directory)
-    return prepare(destination, test["index_dir"], test["snapshot_path"], "validation",
-                   mode=mode or test["mode"], intervention=test["intervention"], reuse_test=directory)
 
 
 def extend(directory, destination):
     p = load(directory)
-    if p["phase"] not in ("validation", "test"):
-        raise ValueError("Mode completion applies to validation and test evaluations")
+    if p["phase"] != "test":
+        raise ValueError("Mode completion applies to held-out tests")
     if Path(destination).resolve() == Path(p["directory"]):
         raise ValueError("Full completion requires its own evaluation directory")
     return prepare(destination, p["index_dir"], p["snapshot_path"], p["phase"], mode="full",
-                   intervention=p["intervention"], boundary=p["boundary"], extend_from=p["directory"],
-                   reuse_test=p.get("reuse_test", {}).get("path"))
+                   intervention=p["intervention"], boundary=p["boundary"], extend_from=p["directory"])
 
 
 def pending(directory):
@@ -332,6 +343,8 @@ def finalize(directory):
     test = load(plan["reuse_test"]["path"]) if plan.get("reuse_test") else None
     test_shared = {d for rows in test["outputs"].values() for d in rows.values()} if test else set()
     shared |= test_shared
+    if plan.get("reuse_learning"):
+        shared.update(d for outputs in plan["outputs"].values() for d in outputs.values())
     manifest = data.verify(plan["index_dir"])
     learning_scenes = manifest["binding"]["learning_views"]
     for seed in SEEDS:
@@ -339,8 +352,13 @@ def finalize(directory):
         for tid in plan["task_ids"]:
             d = Path(plan["outputs"][str(seed)][tid])
             context = read_json(d / "task.json")
-            if (context["snapshot_id"] != plan["snapshot_id"] or ({**context["public"], "split": "validation"} if str(d) in test_shared else context["public"]) != rows[tid]
-                    or context["intervention"] != plan["intervention"]):
+            public = context["public"]
+            if str(d) in test_shared:
+                public = {**public, "split": "validation"}
+            elif plan.get("reuse_learning"):
+                public = {**public, "split": "promotion"}
+            if (context["snapshot_id"] != plan["snapshot_id"] or public != rows[tid]
+                    or generation_seed(context) != seed or context["intervention"] != plan["intervention"]):
                 raise ValueError("Evaluation task must match its frozen plan")
             record = score(d)
             if record["valid_output"]:
@@ -355,7 +373,7 @@ def finalize(directory):
         scores[str(seed)] = values
         for category in {rows[t]["category"] for t in values}:
             categories.setdefault(category, []).append(statistics.mean(v for t, v in values.items() if rows[t]["category"] == category))
-        for label in ("learning", "validation"):
+        for label in ("learning", "heldout" if plan.get("population") == "heldout" else "validation"):
             selected = [v for t, v in values.items() if (rows[t]["scene_id"] in learning_scenes) == (label == "learning")]
             if selected:
                 partitions.setdefault(label, []).append(statistics.mean(selected))
@@ -396,12 +414,12 @@ def report(path):
 
 
 def compare(candidate, baseline):
-    for field in ("data_revision", "scorer", "seeds", "views", "task_ids", "phase"):
+    for field in ("data_revision", "scorer", "seeds", "views", "task_ids", "phase", "boundary"):
         if candidate[field] != baseline[field]:
-            raise ValueError("Promotion requires compatible validation reports")
-    required_count = 33 * len(candidate["views"])
-    if candidate["phase"] != "validation" or candidate["count"] != required_count or baseline["count"] != required_count:
-        raise ValueError("Promotion requires all declared validation scene/view inputs")
+            raise ValueError("Promotion requires compatible round promotion reports")
+    if (candidate["phase"] != "promotion" or candidate["count"] != 11 or baseline["count"] != 11
+            or len(set(candidate["task_ids"])) != 11):
+        raise ValueError("Promotion requires all eleven round inputs")
     delta = candidate["mean"] - baseline["mean"]
     if abs(delta) > EPSILON:
         return {"accepted": delta > 0, "reason": "score", "gain": delta}

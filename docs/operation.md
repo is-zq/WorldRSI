@@ -4,43 +4,20 @@ Use `./wrsi` in the API-World environment. All directories passed to commands ar
 durable paths under `/data`. Main Codex drives role dispatch; file commands produce
 packets, immutable artifacts and explicit pending states.
 
-## Preparation
+## Preparation and role dispatch
 
 ```bash
 ./wrsi doctor
 ./wrsi data prepare
 ./wrsi snapshot freeze
-./wrsi run init RUN_NAME --index INDEX_DIR --snapshot SNAPSHOT_DIR
-./wrsi run initial-validation RUN_DIR
+./wrsi run init RUN_NAME --index INDEX_DIR --snapshot SNAPSHOT_DIR --mode quick
+./wrsi run begin RUN_DIR
 ```
 
-The snapshot command returns its immutable path. Evaluation preparation writes
-evaluation.json and seeds/42/TASK_ID through seeds/45/TASK_ID. Initial validation
-automatically prepares initial testing and references its
-validation subset. Dispatch one Executor per test input at seed 42, then use the
-shared evaluation procedure below. Start learning with `./wrsi run begin RUN_DIR`.
-Score the full test plan once, then have the
-validation Scorer run its batch to verify and reuse the matching test scores.
-Finalize both reports. After initial validation:
-
-```bash
-./wrsi run set-reference RUN_DIR
-```
-
-`run begin` creates eleven sources and returns their directories, initial tasks,
-snapshot and frozen history. Repeating it resumes the current round.
-Initial evaluation and the first learning batch run concurrently; register the
-initial reference before candidate validation or promotion.
-
-## Role dispatch
-
-Use `--mode quick` on `run init` for first-view validation and testing, or
-`--mode full` for all three views. Both modes use four seeds. The run records this
-choice. Learning uses the single view already assigned to each scene.
-
-`wrsi run initial-test RUN_DIR` returns the initial test plan also used by initial
-validation. Their shared outputs are generated and scored only once. Record the completed
-initial test with `wrsi run register-initial-test RUN_DIR`.
+Use the immutable snapshot path returned by `snapshot freeze`. No initial test or
+reference report is required. `run begin` creates eleven sources from the frozen
+round-start Harness and history; repeating it resumes the open round. Quick/full
+controls only held-out tests, never the fixed learning or promotion views.
 
 ```bash
 ./wrsi agent packet PACKET_DIR --role executor --task-dir TASK_DIR
@@ -53,7 +30,7 @@ initial test with `wrsi run register-initial-test RUN_DIR`.
 
 Use a new packet directory for updated evidence. Read dispatch.json and call its
 specified collaboration method and arguments. Each learning source task has one
-Scorer across its attempts; each validation and test evaluation has
+Scorer across its attempts; each promotion and test evaluation has
 its own Scorer. Register its first dispatch before preparing follow-up packets.
 Scorer uses gpt-6.1-sol/high and only calls scripts. Persistent roles continue
 through followup_task within their scope after registration. For a replacement session, prepare a new packet
@@ -136,55 +113,17 @@ evaluation's Scorer. It invokes the scoring script once for all tasks and seeds:
 ```
 
 The batch writes each output's official components and score. A retry verifies
-and skips finished scores. The same commands serve validation and tests. Each
+and skips finished scores. The same commands serve promotion and tests. Each
 learning attempt uses the same batch command for its one input × four seeds.
-For overlapping validation and testing, score the test first. Prepare the
-validation projection, dispatch/register its own Scorer as above, and have it
-call the batch script to verify and reuse the test scores without remeasurement:
-
-```bash
-./wrsi eval validation-from-test TEST_EVALUATION_DIR --destination VALIDATION_DIR
-./wrsi score batch VALIDATION_DIR --definition VALIDATION_SCORER_PACKET/input.json
-./wrsi eval finalize VALIDATION_DIR
-```
-
-The projection requires matching Agent, data, intervention, inputs, seeds and
-scorer, and retains the source test plan and task/score identities. Existing frozen
-validation plans are resumed unchanged; use a new destination to create a
-projection. A full extension of a quick projection reuses its existing test views
-and evaluates the remaining views in one batch. Failure
-to produce a valid final video is recorded with `wrsi output fail TASK --reason
+Failure to produce a valid final video is recorded with `wrsi output fail TASK --reason
 TEXT`, then scored by that task/evaluation's Scorer. Pending external/scoring failures remain
 recoverable from their registered submissions and saved artifacts.
 
-## Round promotion and tests
+## Round promotion
 
-`wrsi eval status EVALUATION_DIR` lists inputs needing modeling and outstanding
-generations. Completed outputs are retained when submitting or collecting again.
-
-To complete a quick evaluation:
-
-```bash
-./wrsi eval extend QUICK_EVALUATION_DIR --destination FULL_EVALUATION_DIR
-./wrsi eval status FULL_EVALUATION_DIR
-```
-
-Dispatch Executors for the listed modeling tasks, then use the usual submit,
-collect, score and finalize commands. The plan shares the quick evaluation's
-task directories and creates tasks for the remaining two views. Its snapshot,
-data revision, seeds and boundary remain bound. An epoch's full report can be
-registered after its quick report, including after learning has advanced to
-another snapshot. Register an initial test extension with
-`wrsi run register-initial-test RUN_DIR --report FULL_EVALUATION_DIR`.
-
-When all eleven sources are closed with verified learning evidence, dispatch Manual
-Manager, then publish its complete manuals and dispatch Editor. Editor receives
-all current and historical source summaries, including unsuccessful outcomes.
-It writes the complete synthesized policy in `policy/skills/worldrsi-decision/SKILL.md`
-under its output directory and reusable implementations under templates. Policy
-publication accepts only this single decision skill; raw source experience
-attachments are not part of the Executor policy. Executor packets expose its
-frozen path as `decision_experience`:
+When all eleven sources are closed, dispatch Manual Manager, publish its complete
+manuals, then dispatch Editor. Editor synthesizes current and historical summaries
+into one decision skill plus reusable templates. Publish the complete candidate:
 
 ```bash
 ./wrsi run manual-inputs RUN_DIR
@@ -192,24 +131,54 @@ frozen path as `decision_experience`:
 ./wrsi run candidate RUN_DIR --policy CANDIDATE_POLICY --templates CANDIDATE_TEMPLATES
 ```
 
-Execute the candidate's validation evaluation and finalize its report. Then:
+The returned `baseline_evaluation` references all eleven initial learning reports;
+its `evaluation` is the candidate plan. Each covers 11 fixed learning views × seeds
+42–45 regardless of test mode. Dispatch fresh Executors only for the candidate's
+seed-42 modeling tasks. Submit/collect the four replicas with the common procedure.
+Dispatch a separate Scorer for each evaluation. The baseline Scorer only verifies
+existing initial scores; the candidate Scorer measures its complete batch. Record
+actual usage, then finalize both reports before deciding:
 
 ```bash
 ./wrsi run decide RUN_DIR
 ./wrsi run status RUN_DIR
-./wrsi run test RUN_DIR
-./wrsi run register-test RUN_DIR --report TEST_REPORT
+./wrsi run history RUN_DIR
 ./wrsi run report RUN_DIR
+./wrsi run begin RUN_DIR
 ```
 
-`run test` prepares the current pending boundary. Complete all 198 inputs using
-the common four-seed procedure and register the report before another round.
-`run history` returns `sufficient_gain` bundles from completed rounds and aggregate
-validation outcomes, including rejected candidates.
-`run report` includes source closure status, tests and costs by phase. Long commands
-run in named tmux sessions with logs under logs/; record the session and log path.
+`decide` compares the candidate against this round's baseline and binds both report
+hashes. `history` supplies sufficient-gain bundles and `promotion` summaries.
+The next round does not require a test. Keep long commands in named tmux sessions
+with logs under `logs/`; report the session and log path.
 
-Existing indexes, task bindings, submissions, snapshots and batch-start histories
-remain frozen when resuming a run. Newly assembled history uses the source's
-`sufficient_gain` status. Legacy transfer artifacts remain archived and their
-costs remain reportable; their receipts are not required for source completion.
+## Optional held-out tests
+
+Choose the candidate of any published round, including rejected candidates:
+
+```bash
+./wrsi run test RUN_DIR --round 2 --target candidate --mode quick
+```
+
+`--target active` selects the Harness active after that round's completed decision.
+`--round 0` selects the initial Harness. Target defaults to `candidate`; mode
+defaults to the run's test mode. The plan contains only the 33 held-out scenes.
+Quick uses the left view (132 outputs), full all views (396 outputs).
+
+Dispatch Executors and the test's own Scorer through the common evaluation
+procedure, finalize, then register the report:
+
+```bash
+./wrsi run register-test RUN_DIR --report TEST_EVALUATION_DIR
+./wrsi eval extend QUICK_EVALUATION_DIR --destination FULL_EVALUATION_DIR
+./wrsi eval status FULL_EVALUATION_DIR
+```
+
+An extension retains existing outputs and adds the other two views. Complete and
+register it with the same commands. Registration checks the selected historical
+Harness, so later learning does not change the target. Neither pending tests nor
+their scores affect learning or promotion.
+
+Indexes, task bindings, submissions, snapshots and frozen histories retain their
+identities. Legacy reports remain readable. One-off changes to an existing run
+are direct agent operations documented with that run, not a migration command.

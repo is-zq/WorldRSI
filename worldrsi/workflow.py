@@ -5,6 +5,15 @@ import random
 from .common import ROOT, digest, identifier, immutable_json, lock, read_json, sha256, write_json, tree
 from . import data, evaluation, learning, snapshots
 
+PROTOCOL = "physics-iq-learning-promotion-v2"
+
+
+def learning_run(run_dir):
+    state = read_json(Path(run_dir) / "run.json")
+    if state["protocol"] != PROTOCOL:
+        raise ValueError(f"Learning requires run protocol {PROTOCOL}")
+    return state
+
 
 def epoch_order(scenes, epoch):
     if len(scenes) != 33 or len(set(scenes)) != 33 or type(epoch) is not int or not 1 <= epoch <= 4:
@@ -20,10 +29,9 @@ def init_run(name, index, snapshot, root=ROOT, *, mode="full"):
     directory = root / "runs" / identifier(name)
     scenes = [r["scene_id"] for r in data.tasks(index, "learning")]
     evaluation.views_for(mode)
-    record = {"protocol": "physics-iq-cross-view-v1", "run_id": name, "directory": str(directory),
+    record = {"protocol": PROTOCOL, "run_id": name, "directory": str(directory),
               "index_dir": str(index), "data_revision": m["revision"], "initial_snapshot": snap["path"],
-              "current_snapshot": snap["path"], "reference": None, "rounds": [], "tests": [], "mode": mode,
-              "initial_test_plan": None, "initial_test": None,
+              "current_snapshot": snap["path"], "rounds": [], "tests": [], "mode": mode,
               "rejection_streak": 0, "schedule": {str(e): epoch_order(scenes, e) for e in range(1, 5)}}
     path = directory / "run.json"
     if path.exists():
@@ -34,83 +42,13 @@ def init_run(name, index, snapshot, root=ROOT, *, mode="full"):
     return immutable_json(path, record)
 
 
-def initial_reference(run_dir):
-    state = read_json(Path(run_dir) / "run.json")
-    destination = Path(run_dir) / "initial-validation"
-    if (destination / "evaluation.json").exists():
-        return evaluation.load(destination)
-    test = prepare_initial_test(run_dir)
-    return evaluation.validation_from_test(test["directory"], destination, mode=state["mode"])
-
-
-def prepare_initial_test(run_dir):
-    run_dir = Path(run_dir).resolve()
-    with lock(run_dir / ".run.lock"):
-        state = read_json(run_dir / "run.json")
-        if state.get("initial_test_plan"):
-            return evaluation.load(state["initial_test_plan"])
-        plan = evaluation.prepare(run_dir / "initial-test", state["index_dir"], state["initial_snapshot"], "test",
-                                  mode=state["mode"], boundary={"stage": "initial", "run_id": state["run_id"]})
-        state["initial_test_plan"] = str(run_dir / "initial-test/evaluation.json")
-        write_json(run_dir / "run.json", state)
-        return plan
-
-
-def register_initial_test(run_dir, report_path=None):
-    run_dir = Path(run_dir).resolve()
-    with lock(run_dir / ".run.lock"):
-        state = read_json(run_dir / "run.json")
-        plan = evaluation.load(state["initial_test_plan"])
-        path = Path(report_path or plan["directory"])
-        path = path / "report.json" if path.is_dir() else path
-        r = evaluation.report(path)
-        if (r["phase"] != "test" or r["snapshot_id"] != plan["snapshot_id"] or r["data_revision"] != plan["data_revision"]
-                or r["count"] != evaluation.input_count("test", r["mode"]) or r["boundary"] != plan["boundary"]
-                or r["key"] != plan["key"] and not evaluation.is_completion(plan, r)):
-            raise ValueError("Initial report must complete its frozen evaluation or its full extension")
-        receipt = {"path": str(path), "sha256": sha256(path), "snapshot_id": r["snapshot_id"], "complete": True,
-                   "mode": r["mode"], "seeds": r["seeds"], "mean": r["mean"], "sample_std": r["sample_std"]}
-        previous = state.get("initial_test")
-        if previous and previous.get("complete") and previous != receipt:
-            if not evaluation.is_completion(evaluation.report(previous["path"]), r):
-                raise ValueError("Initial report updates must extend the registered coverage")
-        state["initial_test"] = receipt
-        write_json(run_dir / "run.json", state)
-        return receipt
-
-
-def set_reference(run_dir):
-    run_dir = Path(run_dir)
-    with lock(run_dir / ".run.lock"):
-        state = read_json(run_dir / "run.json")
-        path = run_dir / "initial-validation/report.json"
-        report = evaluation.report(path)
-        snap = snapshots.verify(state["initial_snapshot"])
-        early_round = (len(state["rounds"]) == 1 and state["rounds"][0].get("initial_evaluation_pending")
-                       and state["rounds"][0]["decision"] is None
-                       and state["rounds"][0]["snapshot_path"] == state["initial_snapshot"])
-        if (state["rounds"] and not early_round or report["snapshot_id"] != snap["snapshot_id"] or report["data_revision"] != state["data_revision"]
-                or report["mode"] != state["mode"] or report["count"] != evaluation.input_count("validation", state["mode"])):
-            raise ValueError("Initial reference requires the initial complete Agent and full validation")
-        state["reference"] = {"path": str(path.resolve()), "sha256": sha256(path)}
-        write_json(run_dir / "run.json", state)
-    return state["reference"]
-
-
 def stopping(state):
     count = sum(r.get("decision") is not None for r in state["rounds"])
     return count >= 12 or count >= 3 and state["rejection_streak"] >= 5
 
 
-def pending_test(state):
-    count = sum(r.get("decision") is not None for r in state["rounds"])
-    if count and (count % 3 == 0 or stopping(state)) and not any(t["after_round"] == count for t in state["tests"]):
-        return {"after_round": count, "epoch": (count-1)//3+1, "label": "epoch" if count % 3 == 0 else "partial_epoch"}
-    return None
-
-
 def history(run_dir):
-    state = read_json(Path(run_dir) / "run.json")
+    state = learning_run(run_dir)
     bundles, decisions = [], []
     for r in state["rounds"]:
         if r.get("decision") is None:
@@ -120,24 +58,17 @@ def history(run_dir):
             if accepted:
                 bundles.append({"round": r["round"], **accepted})
         decisions.append({"round": r["round"], **r["decision"]})
-    return {"bundles": bundles, "validation": decisions}
+    return {"bundles": bundles, "promotion": decisions}
 
 
 def begin_round(run_dir):
     run_dir = Path(run_dir).resolve()
-    initial_reference(run_dir)  # Bind initial evaluation without nesting the run lock.
     with lock(run_dir / ".run.lock"):
-        state = read_json(run_dir / "run.json")
+        state = learning_run(run_dir)
         if state["rounds"] and state["rounds"][-1].get("decision") is None:
             return state["rounds"][-1]
-        early = state["reference"] is None and not state["rounds"]
-        if state["reference"] is None and not early:
-            raise ValueError("Learning requires an initial validation reference")
-        if early:
-            if state["current_snapshot"] != state["initial_snapshot"]:
-                raise ValueError("Parallel initial learning requires the frozen initial Agent")
-        if pending_test(state) or stopping(state):
-            raise ValueError("Next learning round requires an open schedule with completed boundary tests")
+        if stopping(state):
+            raise ValueError("Learning schedule is complete")
         number = len(state["rounds"]) + 1
         epoch, batch = (number-1)//3+1, (number-1)%3
         public = {r["scene_id"]: r for r in data.tasks(state["index_dir"], "learning")}
@@ -158,8 +89,6 @@ def begin_round(run_dir):
             sources.append({"scene_id": scene, "task_id": p["task_id"], "directory": str(d)})
         result = {"round": number, "epoch": epoch, "batch": batch+1, "directory": str(folder),
                   "snapshot_path": snap["path"], "sources": sources, "manuals": None, "candidate": None, "decision": None}
-        if early:
-            result["initial_evaluation_pending"] = True
         state["rounds"].append(result)
         write_json(run_dir / "run.json", state)
         return result
@@ -173,7 +102,7 @@ def completed_sources(current):
 
 def editor_experiences(run_dir):
     """All closed sources, including unsuccessful rounds, remain synthesis inputs."""
-    state = read_json(Path(run_dir) / "run.json")
+    state = learning_run(run_dir)
     result = []
     for current in state["rounds"]:
         result.extend({"round": current["round"], **experience}
@@ -183,7 +112,7 @@ def editor_experiences(run_dir):
 
 def manual_inputs(run_dir):
     from .records import verify_manual_update
-    state = read_json(Path(run_dir) / "run.json")
+    state = learning_run(run_dir)
     current = state["rounds"][-1]
     completed_sources(current)
     updates = []
@@ -205,7 +134,7 @@ def manual_inputs(run_dir):
 def publish_manuals(run_dir):
     run_dir = Path(run_dir)
     with lock(run_dir / ".run.lock"):
-        state = read_json(run_dir / "run.json")
+        state = learning_run(run_dir)
         current = state["rounds"][-1]
         inputs = manual_inputs(run_dir)
         files = tree(inputs["output_manuals"])
@@ -223,9 +152,7 @@ def publish_manuals(run_dir):
 def candidate(run_dir, policy=None, templates=None):
     run_dir = Path(run_dir)
     with lock(run_dir / ".run.lock"):
-        state = read_json(run_dir / "run.json")
-        if state["reference"] is None:
-            raise ValueError("Candidate validation requires the initial validation reference")
+        state = learning_run(run_dir)
         current = state["rounds"][-1]
         completed_sources(current)
         if not current["manuals"] or tree(current["manuals"]["output_manuals"]) != current["manuals"]["hashes"]:
@@ -241,13 +168,16 @@ def candidate(run_dir, policy=None, templates=None):
             if current["candidate"]["snapshot_id"] != snap["snapshot_id"]:
                 raise ValueError("Round candidate is already frozen")
             return current["candidate"]
-        reference = evaluation.report(state["reference"]["path"])
-        if snap["snapshot_id"] == reference["snapshot_id"]:
-            location = str(Path(state["reference"]["path"]).parent)
-        else:
-            location = str(Path(current["directory"]) / "validation")
-            evaluation.prepare(location, state["index_dir"], snap["path"], "validation", mode=state["mode"])
-        current["candidate"] = {"snapshot_id": snap["snapshot_id"], "snapshot_path": snap["path"], "evaluation": location}
+        ids = [source["task_id"] for source in current["sources"]]
+        boundary = {"run_id": state["run_id"], "round": current["round"],
+                    "baseline_snapshot_id": snapshots.verify(base)["snapshot_id"]}
+        baseline = str(Path(current["directory"]) / "promotion/baseline")
+        evaluation.prepare(baseline, state["index_dir"], base, "promotion", task_ids=ids, boundary=boundary,
+                           learning_attempts=[Path(source["directory"]) / "initial" for source in current["sources"]])
+        location = str(Path(current["directory"]) / "promotion/candidate")
+        evaluation.prepare(location, state["index_dir"], snap["path"], "promotion", task_ids=ids, boundary=boundary)
+        current["candidate"] = {"snapshot_id": snap["snapshot_id"], "snapshot_path": snap["path"],
+                                "evaluation": location, "baseline_evaluation": baseline}
         write_json(run_dir / "run.json", state)
         return current["candidate"]
 
@@ -255,65 +185,96 @@ def candidate(run_dir, policy=None, templates=None):
 def decide(run_dir):
     run_dir = Path(run_dir)
     with lock(run_dir / ".run.lock"):
-        state = read_json(run_dir / "run.json")
+        state = learning_run(run_dir)
         current = state["rounds"][-1]
         if current["decision"]:
             return current["decision"]
-        if state["reference"] is None:
-            raise ValueError("Promotion requires the initial validation reference")
-        if sha256(state["reference"]["path"]) != state["reference"]["sha256"]:
-            raise ValueError("Reference report must retain its registered hash")
         c = current["candidate"]
         report = evaluation.report(c["evaluation"])
-        if report["snapshot_id"] != c["snapshot_id"]:
-            raise ValueError("Validation must evaluate the frozen candidate")
-        decision = evaluation.compare(report, evaluation.report(state["reference"]["path"]))
-        current["decision"] = {**decision, "mean": report["mean"], "categories": report["categories"]}
+        baseline = evaluation.report(c["baseline_evaluation"])
+        ids = sorted(source["task_id"] for source in current["sources"])
+        expected_boundary = {"run_id": state["run_id"], "round": current["round"],
+                             "baseline_snapshot_id": snapshots.verify(current["snapshot_path"])["snapshot_id"]}
+        if (state["current_snapshot"] != current["snapshot_path"]
+                or report["snapshot_id"] != c["snapshot_id"] or baseline["snapshot_id"] != expected_boundary["baseline_snapshot_id"]
+                or sorted(report["task_ids"]) != ids or report["boundary"] != expected_boundary
+                or report["data_revision"] != state["data_revision"]):
+            raise ValueError("Promotion must compare the frozen candidate and round-start Agent on this round's inputs")
+        decision = evaluation.compare(report, baseline)
+        current["decision"] = {**decision, "mean": report["mean"], "baseline_mean": baseline["mean"],
+                               "categories": report["categories"],
+                               "reports": {name: {"path": str(Path(path) / "report.json"),
+                                                   "sha256": sha256(Path(path) / "report.json")}
+                                           for name, path in (("candidate", c["evaluation"]), ("baseline", c["baseline_evaluation"]))}}
         if decision["accepted"]:
             state["current_snapshot"] = c["snapshot_path"]
-            p = Path(c["evaluation"]) / "report.json"
-            state["reference"] = {"path": str(p), "sha256": sha256(p)}
             state["rejection_streak"] = 0
         else:
             state["rejection_streak"] += 1
-        write_json(run_dir / "run.json", state)
+        current["result_snapshot"] = state["current_snapshot"]
         immutable_json(Path(current["directory"]) / "decision.json", current["decision"])
+        write_json(run_dir / "run.json", state)
         return current["decision"]
 
 
-def prepare_test(run_dir, mode=None):
+def test_snapshot(state, round_number, target):
+    if type(round_number) is not int or round_number < 0 or target not in ("candidate", "active"):
+        raise ValueError("Test selection requires a nonnegative round and candidate/active target")
+    if round_number == 0:
+        return state["initial_snapshot"]
+    current = next((r for r in state["rounds"] if r["round"] == round_number), None)
+    if current is None:
+        raise ValueError("Unknown test round")
+    if target == "candidate":
+        if not current.get("candidate"):
+            raise ValueError("Test round has no frozen candidate")
+        return current["candidate"]["snapshot_path"]
+    if current.get("decision") is None:
+        raise ValueError("Active Harness requires a completed round decision")
+    return current["candidate"]["snapshot_path"] if current["decision"]["accepted"] else current["snapshot_path"]
+
+
+def prepare_test(run_dir, mode=None, *, round_number, target="candidate"):
     state = read_json(Path(run_dir) / "run.json")
-    boundary = pending_test(state)
-    if boundary is None:
-        raise ValueError("A complete test requires a pending epoch or stopping boundary")
-    d = Path(run_dir) / "tests" / f"after-r{boundary['after_round']:03d}"
-    return evaluation.prepare(d, state["index_dir"], state["current_snapshot"], "test", mode=mode or state["mode"],
-                              boundary={**boundary, "run_id": state["run_id"]})
+    snapshot = test_snapshot(state, round_number, target)
+    mode = mode or state["mode"]
+    boundary = {"run_id": state["run_id"], "round": round_number, "target": target}
+    directory = Path(run_dir) / "tests" / f"r{round_number:03d}-{target}-{mode}"
+    extension = None
+    if (directory / "evaluation.json").exists():
+        plan = evaluation.load(directory)
+        if plan["snapshot_id"] != snapshots.verify(snapshot)["snapshot_id"] or plan["boundary"] != boundary:
+            raise ValueError("Test selection changed after preparation")
+        extension = plan["extended_from"]["path"] if plan["extended_from"] else None
+    return evaluation.prepare(directory, state["index_dir"], snapshot, "test", mode=mode, boundary=boundary,
+                              extend_from=extension)
 
 
 def register_test(run_dir, report_path):
     run_dir = Path(run_dir)
     with lock(run_dir / ".run.lock"):
         state = read_json(run_dir / "run.json")
-        expected = pending_test(state)
         r = evaluation.report(report_path)
-        if r["phase"] != "test" or r["count"] != evaluation.input_count("test", r["mode"]) or r["data_revision"] != state["data_revision"]:
-            raise ValueError("Boundary report must cover the declared test scope")
-        prior = next((t for t in reversed(state["tests"]) if r["boundary"] == {k: t[k] for k in ("after_round", "epoch", "label")} | {"run_id": state["run_id"]}), None)
-        if prior:
-            if sha256(prior["path"]) != prior["sha256"]:
-                raise ValueError("Registered test must retain its report binding")
-            previous = evaluation.report(prior["path"])
-            if previous == r:
-                return {"complete": stopping(state), "test": prior}
-            if not evaluation.is_completion(previous, r):
-                raise ValueError("A supplemental report must extend its registered quick evaluation")
-            expected = {k: prior[k] for k in ("after_round", "epoch", "label")}
-        elif (expected is None or r["boundary"] != {**expected, "run_id": state["run_id"]}
-              or r["snapshot_id"] != snapshots.verify(state["current_snapshot"])["snapshot_id"]):
-            raise ValueError("Boundary report must evaluate the scheduled complete Agent")
-        p = Path(report_path)
-        p = p / "report.json" if p.is_dir() else p
-        state["tests"].append({**expected, "path": str(p.resolve()), "sha256": sha256(p), "mode": r["mode"]})
+        boundary = r["boundary"] or {}
+        snapshot = test_snapshot(state, boundary.get("round"), boundary.get("target"))
+        expected = {"run_id": state["run_id"], "round": boundary["round"], "target": boundary["target"]}
+        if (r["phase"] != "test" or r.get("population") != "heldout" or r["boundary"] != expected
+                or r["snapshot_id"] != snapshots.verify(snapshot)["snapshot_id"]
+                or r["data_revision"] != state["data_revision"] or r["count"] != evaluation.input_count("test", r["mode"])):
+            raise ValueError("Test report must cover the selected Harness and held-out inputs")
+        expected_ids = {row["task_id"] for row in data.tasks(state["index_dir"], "validation")
+                        if row["view"] in evaluation.views_for(r["mode"])}
+        if set(r["task_ids"]) != expected_ids:
+            raise ValueError("Test report must cover the exact held-out inputs")
+        path = Path(report_path)
+        path = path / "report.json" if path.is_dir() else path
+        receipt = {**expected, "path": str(path.resolve()), "sha256": sha256(path),
+                   "snapshot_id": r["snapshot_id"], "mode": r["mode"], "mean": r["mean"]}
+        for prior in state["tests"]:
+            if all(prior.get(k) == receipt[k] for k in ("round", "target", "mode")):
+                if prior != receipt or sha256(prior["path"]) != prior["sha256"]:
+                    raise ValueError("Registered test must retain its frozen report")
+                return {"test": prior}
+        state["tests"].append(receipt)
         write_json(run_dir / "run.json", state)
-        return {"complete": stopping(state), "test": state["tests"][-1]}
+        return {"test": receipt}

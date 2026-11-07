@@ -35,9 +35,10 @@ class EvaluationTests(unittest.TestCase):
                 "binding":{"trajectory_sha256":"trajectory","camera_sha256":"camera"},"media":[],"references":[]}
 
     def test_seed_fanout_queue_routing_and_resume(self):
-        for phase,count in (("learning",4),("validation",396),("test",792)):
+        for phase,count in (("learning",4),("promotion",44),("test",396)):
             plan=evaluation.prepare(self.root/phase,self.index,self.snap["path"],phase,
-                                    task_ids=[data.tasks(self.index,"learning")[0]["task_id"]] if phase=="learning" else None)
+                                    task_ids=[r["task_id"] for r in data.tasks(self.index,"learning")[:1 if phase=="learning" else 11]] if phase!="test" else None,
+                                    boundary={"round":1} if phase=="promotion" else None)
             self.assertEqual(plan["expected_generations"],count)
             tid,primary=self.package(plan)
             with patch("worldrsi.h3.validate_package",side_effect=self.validated):
@@ -54,7 +55,7 @@ class EvaluationTests(unittest.TestCase):
             self.assertEqual(read_json(primary/"package/request.json").get("seed"),None)
 
     def test_finalize_fixed_denominator_and_per_seed_statistics(self):
-        plan=evaluation.prepare(self.root/"validation",self.index,self.snap["path"],"validation")
+        plan=evaluation.prepare(self.root/"test",self.index,self.snap["path"],"test")
         for seed,rows in plan["outputs"].items():
             for tid,d in rows.items():write_json(Path(d)/"scoring/score.json",{"value":float(seed)-42})
         def scored(d):
@@ -80,7 +81,7 @@ class EvaluationTests(unittest.TestCase):
         with self.assertRaises(ValueError):evaluation.generation_seed({"phase":"learning","generation_seed":46})
 
     def test_quick_views_and_full_completion_preserve_existing_tasks(self):
-        for phase, count, extra in (("validation",33,264),("test",66,528)):
+        for phase, count, extra in (("test",33,264),):
             quick=evaluation.prepare(self.root/(phase+'-quick'),self.index,self.snap["path"],phase,mode="quick")
             self.assertEqual(len(quick["task_ids"]),count)
             self.assertEqual(quick["views"],["perspective-left"])
@@ -108,8 +109,8 @@ class EvaluationTests(unittest.TestCase):
             for d in rows.values():write_json(Path(d)/"scoring/score.json",{"fixture":True})
         with patch("worldrsi.data.validate_index",return_value={}),patch("worldrsi.evaluation.score",return_value={"valid_output":False,"score":0}):
             result=evaluation.finalize(full["directory"])
-        self.assertEqual(result["reused_generations"],264)
-        self.assertEqual(result["fresh_generations"],528)
+        self.assertEqual(result["reused_generations"],132)
+        self.assertEqual(result["fresh_generations"],264)
         self.assertEqual(result["generation_origin"]["source_snapshot_id"],self.snap["snapshot_id"])
 
     def test_completed_generations_resume_from_local_evidence(self):

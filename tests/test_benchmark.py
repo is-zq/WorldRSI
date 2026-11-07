@@ -103,7 +103,7 @@ class BenchmarkTests(unittest.TestCase):
 
     def test_all_phases_use_official_components_and_bound_score(self):
         values=[]
-        for phase in ("learning","transfer","validation","test"):
+        for phase in ("learning","promotion","transfer","validation","test"):
             d,private=self.output(phase)
             component=benchmark.measure_view(d,private)
             self.assertEqual(component["status"],"measured")

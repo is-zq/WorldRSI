@@ -35,19 +35,19 @@ class ScorerProtocolTests(unittest.TestCase):
                 lock_failure(d, read_json(Path(d) / "task.json")["public"], "Fixture failed final output")
 
     def test_scorer_scope_and_high_configuration(self):
-        test = workflow.prepare_initial_test(self.run)
+        test = workflow.prepare_test(self.run,round_number=0)
         first, spec = self.packet(test, "first")
         self.assertEqual(spec["method"], "spawn_agent")
         self.assertEqual((spec["model"], spec["reasoning_effort"]), ("gpt-6.1-sol", "high"))
         _, followup = self.packet(test, "retry")
         self.assertEqual(followup["method"], "followup_task")
         self.assertEqual(followup["arguments"]["target"], "scorer-first")
-        val = workflow.initial_reference(self.run)
+        val = evaluation.prepare(self.run / "promotion", self.index, self.snap["path"], "promotion",
+                                 task_ids=[r["task_id"] for r in data.tasks(self.index,"learning")[:11]], boundary={"round":1})
         second, spec = self.packet(val, "second")
         self.assertEqual(spec["method"], "spawn_agent")
         self.assertNotEqual(read_json(first / "session.json")["session_id"], read_json(second / "session.json")["session_id"])
         fixture_report(val["directory"])
-        workflow.set_reference(self.run)
         sources = workflow.begin_round(self.run)["sources"]
         for i, source in enumerate(sources[:2]):
             attempt = Path(source["directory"]) / "initial"
@@ -62,35 +62,40 @@ class ScorerProtocolTests(unittest.TestCase):
             self.assertEqual(followup["method"], "followup_task")
             self.assertEqual(followup["arguments"]["target"], "scorer-source-" + str(i))
 
-    def test_initial_validation_reuses_exact_test_scores_and_costs(self):
-        val = workflow.initial_reference(self.run)
-        test = workflow.prepare_initial_test(self.run)
+    def test_baseline_reuses_exact_initial_scores_and_costs(self):
+        sources = workflow.begin_round(self.run)["sources"]
+        attempts = [Path(q["directory"]) / "initial" for q in sources]
+        for attempt in attempts:
+            plan = evaluation.load(attempt)
+            for rows in plan["outputs"].values():
+                for d in rows.values():
+                    write_json(Path(d) / "scoring/score.json", {"valid_output": False, "score": 0.25})
+                    write_json(Path(d) / "costs/fixture.json", {"event_id": "fixture", "kind": "scorer",
+                               "values": {"local_cpu_seconds": 2}})
+            self.lock_outputs(plan)
+            fixture_report(attempt)
+        kwargs = dict(task_ids=[q["task_id"] for q in sources], boundary={"round":1}, learning_attempts=attempts)
+        val = evaluation.prepare(self.run / "baseline", self.index, self.snap["path"], "promotion", **kwargs)
         self.assertEqual(val["additional_generations"], 0)
-        self.assertEqual(workflow.initial_reference(self.run), val)
         self.assertFalse((Path(val["directory"]) / "seeds").exists())
-        for seed, rows in test["outputs"].items():
-            for tid, d in rows.items():
-                write_json(Path(d) / "scoring/score.json", {"fixture": True})
-                write_json(Path(d) / "costs/fixture.json", {"event_id": "fixture", "kind": "scorer",
-                           "values": {"local_cpu_seconds": 2}})
-        with patch("worldrsi.evaluation.score", return_value={"valid_output": False, "score": 0.25}):
-            report = evaluation.finalize(val["directory"])
-        self.assertEqual(report["mean"], 0.25)
-        self.assertEqual(report["reused_generations"], 132)
-        self.assertEqual(report["fresh_generations"], 0)
-        self.assertEqual(report["reused_costs"]["totals"]["local_cpu_seconds"], 264)
-        self.assertEqual(len(report["evidence"]), 132)
+        packet, _ = self.packet(val, "baseline-scorer")
+        with patch("worldrsi.evaluation.score", side_effect=lambda d: read_json(Path(d)/"scoring/score.json")), patch("worldrsi.benchmark.measure_view") as measure:
+            scoring.batch(val["directory"], packet/"input.json")
+            result = evaluation.finalize(val["directory"])
+            measure.assert_not_called()
+        self.assertEqual(result["mean"], 0.25)
+        self.assertEqual(result["reused_generations"], 44)
+        self.assertEqual(result["fresh_generations"], 0)
+        self.assertEqual(result["reused_costs"]["totals"]["local_cpu_seconds"], 88)
+        self.assertEqual(len(result["evidence"]), 44)
         evaluation.report(val["directory"])
-        d = next(iter(val["outputs"]["42"].values()))
-        write_json(Path(d) / "scoring/score.json", {"changed": True})
-        with self.assertRaises(ValueError):
-            evaluation.report(val["directory"])
-        with self.assertRaisesRegex(ValueError, "same Agent"):
-            evaluation.prepare(self.run / "mismatch", self.index, self.snap["path"], "validation",
-                               mode="quick", reuse_test=test["directory"], intervention={"other": True})
+        fixture_report(attempts[0], value=0.9)
+        with self.assertRaisesRegex(ValueError, "initial report binding"):
+            evaluation.load(val["directory"])
 
-    def test_batch_preflight_resume_and_no_validation_remeasurement(self):
-        test = workflow.prepare_initial_test(self.run)
+
+    def test_batch_preflight_and_resume(self):
+        test = workflow.prepare_test(self.run,round_number=0)
         packet, _ = self.packet(test, "batch")
         with patch("worldrsi.benchmark.measure_view") as measure:
             with self.assertRaises(FileNotFoundError):
@@ -114,19 +119,12 @@ class ScorerProtocolTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 scoring.batch(test["directory"], packet / "input.json")
             receipt = scoring.batch(test["directory"], packet / "input.json")
-            self.assertEqual(len(receipt["scores"]), 264)
-            self.assertEqual(measure.call_count, 265)
+            self.assertEqual(len(receipt["scores"]), 132)
+            self.assertEqual(measure.call_count, 133)
             self.assertEqual(scoring.batch(test["directory"], packet / "input.json"), receipt)
-            self.assertEqual(measure.call_count, 265)
-            val = workflow.initial_reference(self.run)
-            val_packet, _ = self.packet(val, "val-batch")
-            scoring.batch(val["directory"], val_packet / "input.json")
-            self.assertEqual(measure.call_count, 265)
+            self.assertEqual(measure.call_count, 133)
 
     def test_learning_mean_requires_all_seeds_and_reflector_gets_numbers(self):
-        val = workflow.initial_reference(self.run)
-        fixture_report(val["directory"])
-        workflow.set_reference(self.run)
         source = Path(workflow.begin_round(self.run)["sources"][0]["directory"])
         attempt = source / "initial"
         plan = evaluation.load(attempt)
@@ -179,8 +177,8 @@ class ScorerProtocolTests(unittest.TestCase):
         self.assertEqual(evaluation.prepare_learning(task, self.index), plan)
 
     def test_full_extension_keeps_reused_quick_view(self):
-        val = workflow.initial_reference(self.run)
-        full = evaluation.extend(val["directory"], self.run / "full-validation")
+        val = workflow.prepare_test(self.run,round_number=0)
+        full = evaluation.extend(val["directory"], self.run / "full-test")
         self.assertEqual(full["additional_generations"], 264)
         self.assertTrue(evaluation.is_completion(val, full))
         for seed in val["seeds"]:

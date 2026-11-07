@@ -78,29 +78,16 @@ class CrossViewTests(unittest.TestCase):
     def run_start(self):
         state = workflow.init_run("fixture", self.index, self.snap["path"], root=self.root)
         run = Path(state["directory"])
-        plan = workflow.initial_reference(run)
-        fixture_report(plan["directory"])
-        workflow.set_reference(run)
         return run, workflow.begin_round(run)
 
-    def test_initial_learning_can_overlap_evaluation_without_promotion(self):
-        state = workflow.init_run("parallel", self.index, self.snap["path"], root=self.root)
-        run = Path(state["directory"])
-        batch = workflow.begin_round(run)
+    def test_learning_starts_without_any_test_or_reference(self):
+        run, batch = self.run_start()
         self.assertEqual(len(batch["sources"]), 11)
-        self.assertTrue(batch["initial_evaluation_pending"])
-        self.assertEqual(batch["snapshot_path"], state["initial_snapshot"])
-        self.assertEqual(read_json(Path(batch["directory"]) / "history.json"), {"bundles": [], "validation": []})
         self.assertEqual(workflow.begin_round(run), batch)
-        with self.assertRaisesRegex(ValueError, "initial validation reference"):
-            workflow.candidate(run)
-        with self.assertRaisesRegex(ValueError, "initial validation reference"):
-            workflow.decide(run)
-        plan = workflow.initial_reference(run)
-        fixture_report(plan["directory"])
-        workflow.set_reference(run)
-        self.assertIsNotNone(read_json(run / "run.json")["reference"])
-        self.assertEqual(workflow.begin_round(run), batch)
+        self.assertFalse((run / "initial-test").exists())
+        self.assertNotIn("reference", read_json(run / "run.json"))
+        self.assertEqual(read_json(Path(batch["directory"]) / "history.json"), {"bundles": [], "promotion": []})
+
 
     def scored_source(self, source, initial, best):
         source = Path(source)
@@ -168,7 +155,7 @@ class CrossViewTests(unittest.TestCase):
         self.assertEqual(payload["public"],read_json(source/"initial/task.json")["public"])
         self.assertEqual(Path(payload["public"]["first_frame"]).read_bytes(), b"fixture-first-frame")
         self.assertEqual(Path(payload["public"]["prompt"]).read_text(), "A public physics task.")
-        self.assertEqual(payload["history"], {"bundles": [], "validation": []})
+        self.assertEqual(payload["history"], {"bundles": [], "promotion": []})
         self.assertEqual(set(payload["attempts"]), {"initial", "improve"})
         self.assertIn("decisions", payload["attempts"]["initial"])
         self.assertIn("outputs", payload["attempts"]["initial"]["score"])
@@ -261,18 +248,17 @@ class CrossViewTests(unittest.TestCase):
         self.assertTrue(all("transfer" not in src for r in summary["rounds"] for src in r["sources"]))
         self.assertEqual((archived / "evaluation.json").read_bytes(), frozen)
 
-    def test_pending_boundaries_and_patience(self):
-        for count,streak,expected in [(1,1,None),(3,3,"epoch"),(5,5,"partial_epoch"),(6,5,"epoch"),(12,0,"epoch")]:
-            state={"rounds":[{"decision":{}} for _ in range(count)],"rejection_streak":streak,"tests":[]}
-            due=workflow.pending_test(state)
-            self.assertEqual(due and due["label"],expected)
-            if due:
-                state["tests"].append(due)
-                self.assertIsNone(workflow.pending_test(state))
+    def test_stopping_does_not_require_tests(self):
+        for count, streak, expected in [(1, 1, False), (3, 3, False), (5, 5, True), (12, 0, True)]:
+            state = {"rounds": [{"decision": {}} for _ in range(count)], "rejection_streak": streak, "tests": []}
+            self.assertEqual(workflow.stopping(state), expected)
+
 
     def test_cost_tie_and_incompatible_evaluations(self):
-        run,_=self.run_start()
-        base=evaluation.report(run/"initial-validation")
+        run,batch=self.run_start()
+        plan=evaluation.prepare(run/"comparison",self.index,self.snap["path"],"promotion",
+                                task_ids=[q["task_id"] for q in batch["sources"]],boundary={"round":1})
+        base=fixture_report(plan["directory"])
         candidate=copy.deepcopy(base)
         candidate["mean"]+=0.01
         self.assertTrue(evaluation.compare(candidate,base)["accepted"])
@@ -327,6 +313,8 @@ class CrossViewTests(unittest.TestCase):
         self.assertTrue(all(e["observations"] and "transfer" not in e for e in experiences))
         c = workflow.candidate(run)
         self.assertEqual(c["snapshot_id"], self.snap["snapshot_id"])
+        fixture_report(c["baseline_evaluation"])
+        fixture_report(c["evaluation"])
         self.assertFalse(workflow.decide(run)["accepted"])
         state = read_json(run / "run.json")
         self.assertEqual(state["current_snapshot"], self.snap["path"])
@@ -375,15 +363,16 @@ class CrossViewTests(unittest.TestCase):
         raw.unlink()
         c=workflow.candidate(run,policy=policy)
         self.assertNotEqual(c["snapshot_id"],self.snap["snapshot_id"])
+        fixture_report(c["baseline_evaluation"])
         fixture_report(c["evaluation"],value=0.5)
         self.assertTrue(workflow.decide(run)["accepted"])
         state=read_json(run/"run.json")
         self.assertEqual(state["current_snapshot"],c["snapshot_path"])
-        self.assertEqual(read_json(state["reference"]["path"])["mean"],0.5)
+        self.assertEqual(state["rounds"][-1]["decision"]["baseline_mean"],0.4)
         next_batch=workflow.begin_round(run)
         self.assertEqual(next_batch["snapshot_path"],c["snapshot_path"])
         self.assertEqual(read_json(Path(batch["directory"])/"history.json"),old_history)
-        self.assertEqual(len(read_json(Path(next_batch["directory"])/"history.json")["validation"]),1)
+        self.assertEqual(len(read_json(Path(next_batch["directory"])/"history.json")["promotion"]),1)
         packet = self.root / "fresh-executor"
         agents.packet("executor",packet,task_dir=Path(next_batch["sources"][0]["directory"])/"initial")
         payload = read_json(packet/"input.json")
@@ -412,26 +401,29 @@ class CrossViewTests(unittest.TestCase):
                 agents.packet("reflector",self.root/(field+"-missing"),source_dir=source)
             file.write_bytes(original)
 
-    def test_quick_run_starts_learning_while_initial_test_is_pending(self):
+    def test_quick_test_is_optional_and_only_heldout(self):
         state=workflow.init_run("quick",self.index,self.snap["path"],root=self.root,mode="quick")
         run=Path(state["directory"])
-        test=workflow.prepare_initial_test(run)
-        self.assertEqual(test["expected_generations"],264)
-        val=workflow.initial_reference(run)
-        self.assertEqual(val["expected_generations"],132)
-        fixture_report(val["directory"])
-        workflow.set_reference(run)
+        test=workflow.prepare_test(run,round_number=0)
+        self.assertEqual(test["expected_generations"],132)
+        task = Path(next(iter(test["outputs"]["42"].values()))) / "task.json"
+        original = task.read_bytes()
+        task.unlink()  # A crash during preparation can leave only the plan.
+        self.assertEqual(workflow.prepare_test(run,round_number=0),test)
+        self.assertEqual(task.read_bytes(),original)
+        heldout={row["task_id"] for row in data.tasks(self.index,"validation") if row["view"]=="perspective-left"}
+        self.assertEqual(set(test["task_ids"]),heldout)
         batch=workflow.begin_round(run)
         self.assertEqual(len(batch["sources"]),11)
         fixture_report(test["directory"])
-        self.assertEqual(workflow.register_initial_test(run)["seeds"],[42,43,44,45])
+        self.assertEqual(workflow.register_test(run,test["directory"])["test"]["round"],0)
+
 
     def test_full_test_completion_registers_after_agent_advances(self):
         state=workflow.init_run("quick",self.index,self.snap["path"],root=self.root,mode="quick")
         run=Path(state["directory"])
-        state["rounds"]=[{"decision":{"accepted":False}} for _ in range(3)]
         write_json(run/"run.json",state)
-        quick=workflow.prepare_test(run)
+        quick=workflow.prepare_test(run,round_number=0)
         fixture_report(quick["directory"])
         workflow.register_test(run,quick["directory"])
         full=evaluation.extend(quick["directory"],self.root/"full-test")
@@ -443,7 +435,69 @@ class CrossViewTests(unittest.TestCase):
         result=workflow.register_test(run,full["directory"])
         self.assertEqual(result["test"]["mode"],"full")
         self.assertEqual([r["mode"] for r in read_json(run/"run.json")["tests"]],["quick","full"])
-        self.assertIsNone(workflow.pending_test(read_json(run/"run.json")))
+        self.assertNotIn("pending_test",reports.summarize(run))
+
+    def test_round_selection_keeps_rejected_candidate_and_active_harness_distinct(self):
+        run, batch = self.run_start()
+        manuals = self.root / "alternate-manuals"
+        shutil.copytree(ROOT / "manuals", manuals)
+        (manuals / "operations.md").write_text("# Alternate operations\n")
+        candidate = snapshots.derive(self.snap["path"], manuals=manuals)
+        state = read_json(run / "run.json")
+        state["rounds"][0]["candidate"] = {"snapshot_path": candidate["path"], "snapshot_id": candidate["snapshot_id"]}
+        state["rounds"][0]["decision"] = {"accepted": False}
+        write_json(run / "run.json", state)
+        rejected = workflow.prepare_test(run, "quick", round_number=1)
+        active = workflow.prepare_test(run, "quick", round_number=1, target="active")
+        self.assertEqual(rejected["snapshot_id"], candidate["snapshot_id"])
+        self.assertEqual(active["snapshot_id"], self.snap["snapshot_id"])
+        self.assertNotEqual(rejected["key"], active["key"])
+        # No pending test blocks the next learning round.
+        with patch("worldrsi.learning.accepted_bundle", return_value=None):
+            self.assertEqual(workflow.begin_round(run)["round"], 2)
+        fixture_report(rejected["directory"])
+        self.assertEqual(workflow.register_test(run, rejected["directory"])["test"]["snapshot_id"], candidate["snapshot_id"])
+        with self.assertRaises(ValueError):
+            workflow.prepare_test(run, round_number=99)
+        with self.assertRaises(ValueError):
+            workflow.prepare_test(run, round_number=2, target="active")
+
+    def test_promotion_rejects_cross_round_baseline_and_wrong_snapshot(self):
+        run, batch = self.run_start()
+        ids = [q["task_id"] for q in batch["sources"]]
+        attempts = [Path(q["directory"]) / "initial" for q in batch["sources"]]
+        for attempt in attempts:
+            fixture_report(attempt)
+        plan = evaluation.prepare(run / "comparison", self.index, self.snap["path"], "promotion",
+                                  task_ids=ids, boundary={"round": 1}, learning_attempts=attempts)
+        base = fixture_report(plan["directory"])
+        other = copy.deepcopy(base)
+        other["boundary"] = {"round": 2}
+        with self.assertRaises(ValueError):
+            evaluation.compare(other, base)
+        with self.assertRaises(ValueError):
+            evaluation.prepare(run / "missing", self.index, self.snap["path"], "promotion",
+                               task_ids=ids[:-1], boundary={"round": 1})
+        manuals = self.root / "different-manuals"
+        shutil.copytree(ROOT / "manuals", manuals)
+        (manuals / "operations.md").write_text("# Different\n")
+        different = snapshots.derive(self.snap["path"], manuals=manuals)
+        with self.assertRaisesRegex(ValueError, "same Agent"):
+            evaluation.prepare(run / "wrong", self.index, different["path"], "promotion",
+                               task_ids=ids, boundary={"round": 1}, learning_attempts=attempts)
+
+    def test_learning_rejects_a_different_run_protocol_without_creating_rounds(self):
+        state = workflow.init_run("old", self.index, self.snap["path"], root=self.root)
+        run = Path(state["directory"])
+        state["protocol"] = "physics-iq-cross-view-v1"
+        write_json(run / "run.json", state)
+        before = (run / "run.json").read_bytes()
+        with self.assertRaisesRegex(ValueError, "run protocol"):
+            workflow.begin_round(run)
+        with self.assertRaises(ValueError):
+            workflow.history(run)
+        self.assertFalse((run / "rounds").exists())
+        self.assertEqual((run / "run.json").read_bytes(), before)
 
 
 if __name__ == "__main__": unittest.main()

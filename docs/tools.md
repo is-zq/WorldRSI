@@ -120,7 +120,7 @@ Reflector analyzes learning-task fulfillment.
 
 The complete learned tree has `godot/` and `physics/` subdirectories. Editor may
 add reusable implementations supported by learning evidence and submit the complete
-candidate through validation. Initial `physics/profiles.json` is
+candidate through promotion. Initial `physics/profiles.json` is
 `{"schema_version": 1, "profiles": {}}`; there are no supplied profiles.
 
 Each learned profile declares backend, driver, scope and model defaults. Optional

@@ -76,6 +76,9 @@ def batch(directory, definition):
             reused = {Path(d) for rows in test["outputs"].values() for d in rows.values()}
             for task in set(tasks) & reused:
                 evaluation.score(task)  # Missing test scores stay pending; never remeasure them here.
+        if plan.get("reuse_learning"):
+            for task in tasks:
+                evaluation.score(task)  # Baseline verifies existing measurements only.
         for task in tasks:
             if (task / "scoring/score.json").exists():
                 evaluation.score(task)

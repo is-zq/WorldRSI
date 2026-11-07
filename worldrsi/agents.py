@@ -81,7 +81,7 @@ def packet(role, destination, *, task_dir=None, source_dir=None, run_dir=None, i
                        "templates": str(Path(current["snapshot_path"]) / "source/templates"),
                        "manuals": current["manuals"]["output_manuals"],
                        "experiences": workflow.editor_experiences(scope),
-                       "history": {"validation": workflow.history(scope)["validation"]},
+                       "history": {"promotion": workflow.history(scope)["promotion"]},
                        "output_directory": str(Path(current["directory"]) / "editor")}
         payload["cost_directory"] = str(Path(current["directory"]) / role)
     else:

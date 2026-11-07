@@ -2,7 +2,8 @@
 
 ## Data and schedule
 
-`protocol/split.json` binds the 33 learning and 33 validation scene names. Their
+`protocol/split.json` binds the 33 learning and 33 held-out test scene names (the frozen index retains
+the historical `validation` group name). Their
 Solid Mechanics / Fluid Dynamics / Optics / Thermodynamics / Magnetism counts are
 19/7/4/2/1 and 19/8/4/1/1. Every scene has left, center and right views. Public
 inputs consist of the factual description and take-1 PNG from
@@ -18,20 +19,18 @@ cyclically: eleven scenes per learning view. This assignment stays fixed across
 epochs. Epoch e shuffles sorted scene names with seed 20261020+e and partitions
 them into three batches of eleven. All batch sources use one Agent/history snapshot.
 
-Learning, validation and tests all use seeds 42–45. Each
+Learning, promotion and tests all use seeds 42–45. Each
 input and experimental arm is modeled once; its frozen conditions serve all four
-generation seeds. Initial validation establishes the reference on 99 inputs.
-Initial evaluation and the first learning batch run concurrently; candidate
-validation and promotion require the initial reference.
+generation seeds. Learning and promotion always use each scene's fixed learning view.
 
-Evaluation mode is recorded per run. `full` uses all three views; `quick` uses
-the first declared view (`perspective-left`) for validation and tests. Both use
-seeds 42–45. Quick validation has 33 inputs and quick testing has 66 inputs.
-Learning uses only the single view assigned to each scene, in either mode.
+Evaluation mode is recorded per run and controls only held-out tests: `full`
+uses all three views; `quick` uses `perspective-left`. Both use seeds 42–45.
+Quick testing covers 33 inputs / 132 outputs; full testing covers 99 inputs /
+396 outputs. Tests are requested explicitly for a frozen Harness and never gate
+learning, promotion or stopping. There is no mandatory initial or epoch test.
 
 Run up to four epochs (twelve rounds). After at least one epoch, five consecutive
-rejections end learning. Test the current Agent at every epoch boundary and once
-at a partial stopping boundary.
+rejections end learning.
 
 ## Learning and experience
 
@@ -58,61 +57,62 @@ Editor receives every closed source's summary from all rounds, including stalled
 blocked and saturated sources and rejected candidates, with verified learning evidence.
 Reflector's history is frozen at batch start. Executor uses a fresh task session.
 Each learning source task has one Scorer, continued for its initial and subsequent
-attempts. Each validation and test evaluation has its own Scorer.
+attempts. Each promotion and test evaluation has its own Scorer.
 Retries stay within that scope; Scorer is not shared across the run. Scorer uses
 `gpt-6.1-sol` with `high` reasoning effort. Reflector continues within an open
 source; Editor and Manual Manager continue within a run.
 
 Each learning attempt invokes the scoring script once for its four seeds.
-Validation and test evaluations invoke it once for all planned inputs
+Promotion and test evaluations invoke it once for all planned inputs
 and seeds. The script retains per-output components, scores and evidence;
 infrastructure failures resume the batch and skip verified completed scores.
 Reflector receives per-seed scores and their mean, not Scorer-authored analysis.
 
-## Complete-Agent validation
+## Complete-Agent promotion
 
-After all eleven source closures, Manual Manager combines
-checked tool operations into a complete manual tree. Editor synthesizes all
-Reflector summaries into one self-contained decision experience at
-`policy/skills/worldrsi-decision/SKILL.md`, with reusable implementation templates.
-Preserve narrow but useful lessons as conditional rules, including dependencies,
-checks, counterexamples and uncertainty. Do not discard a lesson merely because
-it appears scene-specific or copy original source bundles into the policy or
-templates. Ordinary Executors read this synthesis as their only learned decision
-experience. Learning branches apply their supplied
-experimental instructions. Validation evaluates all three components
-together on 33 validation scenes × three views × four seeds.
+After all eleven source closures, Manual Manager combines checked tool operations
+into a complete manual tree. Editor synthesizes all Reflector summaries into one
+self-contained decision experience at `policy/skills/worldrsi-decision/SKILL.md`
+and reusable templates. Retain conditional lessons, dependencies, checks,
+counterexamples and uncertainty. Ordinary Executors read this synthesis as their
+only learned decision experience; learning branches apply experimental instructions.
 
-Compare official mean scores using tolerance 1e-12. A higher mean promotes the
-candidate. Equal quality compares, in order, H3 generations, local GPU seconds,
-model tokens and local CPU seconds per fixed input. The first different known
-cost must decrease. Report categories separately. Acceptance updates the three
-Agent components and the validation reference atomically.
+Evaluate the complete candidate (policy, templates and manuals) on this round's
+11 fixed learning inputs × four seeds. Fresh Executors receive ordinary public
+inputs and the candidate Harness, without learning branches, GT or Reflector
+instructions. The baseline reuses the same round's initial outputs and scores,
+bound to the exact round-start Harness, data, inputs, seeds and scoring protocol.
+Its own Scorer verifies all 44 existing measurements without remeasurement.
+Candidate scoring also uses one batch invocation for all 44 outputs. Reports
+retain original costs for reused results and distinguish incremental costs.
 
-## Tests and reporting
+Compare the arithmetic means over the same 44 outputs using tolerance 1e-12.
+Never compare scores from different rounds' input sets. Higher quality promotes
+all three components atomically. Equal quality compares H3 generations, local GPU
+seconds, model tokens and local CPU seconds per input, in that order. The first
+different known cost must decrease; an unknown required cost prevents promotion.
+A rejection retains the round-start Harness. Record both reports and their hashes.
 
-Full tests execute 198 inputs × four seeds at the actual current Agent. Report
-the four seed means, overall mean, sample standard deviation
-(ddof=1), categories and learning/validation partitions. The full set includes
-both the learning and selection scenes; these partitions describe the exposure
-of the evaluated Agent. Test results belong to the main-session report.
+Shared history includes learning summaries and promotion outcomes, including
+rejected candidates. Held-out test scores never enter role feedback or promotion.
 
-A quick evaluation can be extended to full coverage for the same snapshot and
-boundary. The full plan references the quick plan's existing tasks and adds the
-other two views. Existing submissions, conditioning and scores retain their
-identities. A test extension adds 528 generations after all 264 quick generations
-are complete. Reports retain both coverage levels and their source relationship.
-When validation and testing overlap, validation reuses the corresponding test
-outputs and scores for the same complete Agent snapshot, data revision, inputs,
-intervention, seeds and scoring protocol. Initial validation is a projection of
-the initial test. The test Scorer measures the complete test batch once. The
-validation Scorer calls the batch script to verify and reuse its subset without
-remeasurement; then finalize both reports. Retain test source bindings and
-measured costs in the validation report. Different snapshots cannot share scores.
+## Held-out tests and reporting
+
+Tests evaluate only the 33 formerly designated validation scenes. Select a round's
+frozen candidate (including rejected candidates), its active Harness after the
+promotion decision, or the initial Harness with round 0. Reports retain the run,
+round, target and exact complete snapshot, independent of later learning.
+Report four seed means, overall mean, sample standard deviation (ddof=1),
+categories and measured/incremental costs. Tests belong to the main-session report.
+
+`eval extend` completes a quick held-out test with the other two views, adding
+264 outputs and retaining the original 132 output identities. Both reports can
+be registered even after the active Harness advances. Historical reports using
+the former validation or 66-scene test scope remain readable with their original
+identities; their scores do not become promotion evidence.
 
 Evaluation identities bind phase, data, complete snapshot, intervention, seeds,
-scoring protocol and test boundary. Recovery resumes the same submissions.
-Validation caches retain their measured execution costs. Missing or corrupt final
-outputs contribute zero within the fixed denominator; scoring infrastructure
-errors remain pending. Costs distinguish learning, validation, test and
-coordination work, with unknown counters recorded explicitly.
+scoring protocol and round/target. Resume the same submissions after interruption.
+Invalid final outputs contribute zero within the fixed denominator; unfinished
+outputs and scoring infrastructure failures remain pending. Report learning,
+promotion, test and coordination costs separately, preserving unknown counters.

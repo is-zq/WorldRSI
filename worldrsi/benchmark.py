@@ -261,7 +261,7 @@ def _view_context(task_dir, private):
     context = read_json(Path(task_dir) / "task.json")
     locked = verify_locked(task_dir)
     task = context["public"]
-    if context.get("phase") not in ("learning", "transfer", "validation", "test") or task.get("split") != context["phase"]:
+    if context.get("phase") not in ("learning", "promotion", "transfer", "validation", "test") or task.get("split") != context["phase"]:
         raise ValueError("Scorer requires a registered benchmark phase")
     if private["task_id"] != task["task_id"] or locked["task_id"] != task["task_id"] or locked["task_config"] != task:
         raise ValueError("Private benchmark view and locked task do not match")

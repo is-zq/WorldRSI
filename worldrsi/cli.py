@@ -20,7 +20,7 @@ def parser():
     s.add_argument("--templates")
     s.add_argument("--manuals")
     r = commands.add_parser("run")
-    r.add_argument("operation", choices=["init", "initial-validation", "initial-test", "register-initial-test", "set-reference", "begin", "manual-inputs", "publish-manuals", "candidate", "decide", "test", "register-test", "status", "history", "report"])
+    r.add_argument("operation", choices=["init", "begin", "manual-inputs", "publish-manuals", "candidate", "decide", "test", "register-test", "status", "history", "report"])
     r.add_argument("path")
     r.add_argument("--index")
     r.add_argument("--snapshot")
@@ -28,12 +28,14 @@ def parser():
     r.add_argument("--templates")
     r.add_argument("--report")
     r.add_argument("--mode", choices=["quick", "full"])
+    r.add_argument("--round", type=int, dest="round_number")
+    r.add_argument("--target", choices=["candidate", "active"], default="candidate")
     s = commands.add_parser("source")
     s.add_argument("operation", choices=["progress", "branch", "close"])
     s.add_argument("directory")
     s.add_argument("--record")
     e = commands.add_parser("eval")
-    e.add_argument("operation", choices=["submit", "collect", "finalize", "extend", "status", "validation-from-test", "prepare-learning"])
+    e.add_argument("operation", choices=["submit", "collect", "finalize", "extend", "status", "prepare-learning"])
     e.add_argument("directory")
     e.add_argument("--task-id")
     e.add_argument("--destination")
@@ -88,7 +90,7 @@ def execute(a):
     if cmd == "doctor":
         runtime = read_json(ROOT / "config/runtime.json")
         paths = [runtime["physics_iq"], runtime["first_frames"], runtime["h3"]["queue"], runtime["h3"]["skill"], "/data/bin/godot", media.FFMPEG, media.FFPROBE]
-        return {"protocol": runtime["protocol"], "root": str(ROOT), "paths": {s: Path(s).exists() for s in paths}}
+        return {"protocol": workflow.PROTOCOL, "data_protocol": runtime["protocol"], "root": str(ROOT), "paths": {s: Path(s).exists() for s in paths}}
     if cmd == "data":
         return data.prepare(a.directory) if a.operation == "prepare" else data.verify(a.directory, check_inputs=True)
     if cmd == "snapshot":
@@ -97,23 +99,21 @@ def execute(a):
         if a.operation == "init": return workflow.init_run(a.path, a.index, a.snapshot, mode=a.mode or "full")
         if a.operation == "candidate": return workflow.candidate(a.path, a.policy, a.templates)
         if a.operation == "register-test": return workflow.register_test(a.path, a.report)
-        if a.operation == "register-initial-test": return workflow.register_initial_test(a.path, a.report)
-        if a.operation == "test": return workflow.prepare_test(a.path, a.mode)
+        if a.operation == "test": return workflow.prepare_test(a.path, a.mode, round_number=a.round_number, target=a.target)
         if a.operation == "status": return read_json(Path(a.path) / "run.json")
         if a.operation == "report":
             from .reports import summarize
             return summarize(a.path)
-        return {"initial-validation": workflow.initial_reference, "initial-test": workflow.prepare_initial_test, "set-reference": workflow.set_reference,
+        return {
                 "begin": workflow.begin_round, "manual-inputs": workflow.manual_inputs,
                 "publish-manuals": workflow.publish_manuals, "decide": workflow.decide,
-                "test": workflow.prepare_test, "history": workflow.history}[a.operation](a.path)
+                "history": workflow.history}[a.operation](a.path)
     if cmd == "source":
         if a.operation == "progress": return learning.progress(a.directory)
         return {"branch": learning.branch, "close": learning.close}[a.operation](a.directory, read_json(a.record))
     if cmd == "eval":
         if a.operation == "prepare-learning": return evaluation.prepare_learning(a.directory, a.index)
         if a.operation == "submit": return evaluation.submit(a.directory, a.task_id)
-        if a.operation == "validation-from-test": return evaluation.validation_from_test(a.directory, a.destination)
         if a.operation == "extend": return evaluation.extend(a.directory, a.destination)
         if a.operation == "status": return evaluation.pending(a.directory)
         return {"collect": evaluation.collect, "finalize": evaluation.finalize}[a.operation](a.directory)

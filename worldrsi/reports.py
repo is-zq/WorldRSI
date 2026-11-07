@@ -2,13 +2,13 @@
 from pathlib import Path
 from .common import read_json
 from .records import total_cost
-from .workflow import pending_test, stopping
+from .workflow import stopping
 
 
 def summarize(run_dir):
     root = Path(run_dir)
     state = read_json(root / "run.json")
-    groups = {k: [] for k in ("learning", "validation", "test", "reused_test", "coordination")}
+    groups = {k: [] for k in ("learning", "promotion", "test", "reused_test", "coordination")}
     for costs in root.rglob("costs"):
         parent = costs.parent
         context = parent / "task.json"
@@ -30,5 +30,5 @@ def summarize(run_dir):
         rounds.append({"round": r["round"], "epoch": r["epoch"], "sources": sources, "decision": r["decision"]})
     return {"run_id": state["run_id"], "current_snapshot": state["current_snapshot"], "rounds": rounds,
             "mode": state["mode"], "initial_test": state.get("initial_test"), "initial_test_plan": state.get("initial_test_plan"),
-            "tests": state["tests"], "pending_test": pending_test(state), "stopping": stopping(state),
+            "tests": state["tests"], "stopping": stopping(state),
             "costs": {k: total_cost(v) for k, v in groups.items()}}
